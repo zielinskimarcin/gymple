@@ -1,17 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  LayoutAnimation, UIManager, Platform, TextInput,
+  LayoutAnimation, UIManager, Platform, TextInput, ScrollView
 } from "react-native";
 import { colors, spacing, shadow } from "../theme";
 import { Ionicons } from "@expo/vector-icons";
-import type { Exercise } from "../types";
+import type { Exercise, Template } from "../types";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { popCancelDone, popConfirmDone, popLastAddedExerciseTemp } from "../storage";
-import { DEFAULT_EXERCISES } from "../constants/exercises";
+import { DEFAULT_EXERCISES, normalizeName } from "../constants/exercises";
+import { TEMPLATE_ICON_MAP } from "../constants/templateIcons";
+import { DEFAULT_TEMPLATES } from "../constants/defaultTemplates";
+import { getSelectedTemplateId, setSelectedTemplateId, loadTemplates } from "../storage/templates";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -23,7 +26,7 @@ type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-// ❇️ Pokazujemy tylko te 4 chipy na dole:
+// fallback gdy brak template'u
 const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 
 export const TrainScreen = () => {
@@ -34,6 +37,10 @@ export const TrainScreen = () => {
   const [exList, setExList] = useState<ExVM[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
+
+  // templates UI
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
 
   // timer
   useEffect(() => {
@@ -47,28 +54,36 @@ export const TrainScreen = () => {
     return () => t && clearInterval(t);
   }, [active]);
 
-  // po powrocie z modali — dołącz ostatnio dodane
+  // load templates on focus
+  useEffect(() => { (async () => {
+    const user = await loadTemplates();
+    setTemplates([...DEFAULT_TEMPLATES, ...user]);
+    const sel = await getSelectedTemplateId();
+    setSelectedTplId(sel);
+  })(); }, [focused]);
+
+  // last added exercise (from modals)
   useEffect(() => { (async () => {
     if (!active) return;
     const custom = await popLastAddedExerciseTemp();
     if (custom) setExList(prev => prev.find(p => p.id===custom.id)? prev : [...prev, {...custom, sets:[], expanded:true}]);
   })(); }, [focused, active]);
 
-  // flagi z Summary
+  // flags from Summary
   useEffect(() => { (async () => {
     const ok = await popConfirmDone(); if (ok) return clearState();
     const cancel = await popCancelDone(); if (cancel) clearState();
   })(); }, [focused]);
 
   function clearState(){ setActive(false); setExList([]); setName("Workout"); startRef.current=null; setElapsed(0); }
-  const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"Tap Start to begin",[active,elapsed]);
 
+  const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"Tap Start to begin",[active,elapsed]);
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
   const newDefaultSet = (ex:Exercise):SetRowVM => isCardio(ex)? {id:uid(), timeMin:5, distance:0.5}:{id:uid(), weight:20, reps:8};
 
   function addDefault(ex:Exercise){
     setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
-    LayoutAnimation.easeInEaseOut(); // płynne schowanie chipu
+    LayoutAnimation.easeInEaseOut();
   }
   function toggleExpand(id:string){ LayoutAnimation.easeInEaseOut(); setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e)); }
   function addSet(id:string){ setExList(p=>p.map(e=>e.id===id?{...e,sets:[...e.sets,newDefaultSet(e)]}:e)); }
@@ -77,7 +92,7 @@ export const TrainScreen = () => {
   }
   function removeSet(exId:string,setId:string){ setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.filter(s=>s.id!==setId)}:e)); }
   function removeExercise(exId:string){
-    LayoutAnimation.easeInEaseOut(); // płynne pokazanie wracającego chipu
+    LayoutAnimation.easeInEaseOut();
     setExList(p=> p.filter(e=>e.id!==exId));
   }
   function finishPreview(){
@@ -88,13 +103,53 @@ export const TrainScreen = () => {
     }, mode:"preview" });
   }
 
-  // 🔎 TYLKO 4 featured domyślne ćwiczenia i tylko te, których jeszcze nie ma w exList
-  const featuredDefaults = useMemo(() => {
-    const chosen = DEFAULT_EXERCISES.filter(d => FEATURED_DEFAULT_IDS.includes(d.id as any));
-    // zachowaj kolejność jak w FEATURED_DEFAULT_IDS
-    chosen.sort((a,b)=> FEATURED_DEFAULT_IDS.indexOf(a.id as any) - FEATURED_DEFAULT_IDS.indexOf(b.id as any));
-    return chosen.filter(d => !exList.some(e => e.id === d.id));
-  }, [exList]);
+  // Featured z Template’u albo fallback
+  const selectedTemplate = useMemo(
+    () => templates.find(t => t.id === selectedTplId) || null,
+    [templates, selectedTplId]
+  );
+
+  const featuredFromTemplate: Exercise[] = useMemo(() => {
+    if (!selectedTemplate) return [];
+    // mapuj ID -> Exercise (z defaultów); jeśli nie znajdzie (np. custom), pokaż dopiero po Search / Add Custom w trakcie
+    const map = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
+    return selectedTemplate.exerciseIds
+      .map(id => map.get(id))
+      .filter(Boolean) as Exercise[];
+  }, [selectedTemplate]);
+
+  const fallbackFeatured: Exercise[] = useMemo(() => {
+    const byId = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
+    return FEATURED_DEFAULT_IDS.map(id => byId.get(id)).filter(Boolean) as Exercise[];
+  }, []);
+
+  const visibleFeatured = useMemo(
+    () => (featuredFromTemplate.length ? featuredFromTemplate : fallbackFeatured)
+      .filter(d => !exList.some(e => e.id === d.id)),
+    [featuredFromTemplate, fallbackFeatured, exList]
+  );
+
+  async function onPickTemplate(t: Template | "create") {
+    if (t === "create") {
+      nav.navigate("TemplateEditor" as never);
+      return;
+    }
+    setSelectedTplId(t.id);
+    await setSelectedTemplateId(t.id);
+    LayoutAnimation.easeInEaseOut();
+  }
+
+  // UI kart Template’ów (siatka)
+  function TemplateCard({ t, active }: { t: Template; active: boolean }) {
+    return (
+      <TouchableOpacity onPress={() => onPickTemplate(t)} style={[st.tplCard, active && st.tplCardActive]}>
+        <View style={st.tplIconWrap}>
+          <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={22} color={active ? "#0E0E10" : colors.text} />
+        </View>
+        <Text style={[st.tplName, active && { color: "#0E0E10" }]} numberOfLines={1}>{t.name}</Text>
+      </TouchableOpacity>
+    );
+  }
 
   return (
     <SafeAreaView style={st.safe}>
@@ -112,11 +167,27 @@ export const TrainScreen = () => {
         </View>
 
         {!active ? (
-          <View style={st.bottomArea}>
-            <TouchableOpacity style={st.cta} onPress={()=>setActive(true)}>
+          <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
+            {/* GRID TEMPLATES */}
+            <Text style={st.sectionTitle}>Templates</Text>
+            <View style={st.tplGrid}>
+              {templates.map((t) => (
+                <TemplateCard key={t.id} t={t} active={t.id === selectedTplId} />
+              ))}
+              {/* + create */}
+              <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]}>
+                <View style={st.tplIconWrap}>
+                  <Ionicons name="add" size={22} color={colors.text} />
+                </View>
+                <Text style={st.tplName}>Custom</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* START */}
+            <TouchableOpacity style={[st.cta,{marginTop:spacing(2)}]} onPress={()=>setActive(true)}>
               <Text style={st.ctaText}>Start workout</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         ) : (
           <>
             <FlatList
@@ -203,7 +274,7 @@ export const TrainScreen = () => {
                 <TouchableOpacity onPress={()=>nav.navigate("AddExercise")}><Text style={{color:colors.accent,fontWeight:"700"}}>Custom +</Text></TouchableOpacity>
               </View>
               <View style={st.chipsRow}>
-                {featuredDefaults.map(ex=>(
+                {visibleFeatured.map(ex=>(
                   <TouchableOpacity key={ex.id} style={st.chip} onPress={()=>addDefault(ex)}>
                     <Text style={st.chipText}>{ex.name}</Text>
                   </TouchableOpacity>
@@ -311,13 +382,29 @@ const st = StyleSheet.create({
   header:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
   title:{color:colors.text,fontSize:24,fontWeight:"700"},
   subtitle:{color:colors.subtext,marginTop:4},
+
+  // Templates
+  sectionTitle:{color:colors.text,fontSize:16,fontWeight:"600",marginBottom:spacing(1)},
+  tplGrid:{flexDirection:"row",flexWrap:"wrap",gap:12},
+  tplCard:{
+    width:"47%",
+    backgroundColor:colors.card,
+    borderRadius:16,
+    padding:spacing(2),
+    borderWidth:1,
+    borderColor:colors.border,
+  },
+  tplCardActive:{ borderColor: colors.accent, backgroundColor: "#1d1f23" },
+  tplIconWrap:{width:44,height:44,borderRadius:12,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:10},
+  tplName:{color:colors.text,fontWeight:"700"},
+  tplCreate:{borderStyle:"dashed"},
+
   bottomArea:{paddingBottom:spacing(2)},
   cta:{backgroundColor:colors.card,paddingVertical:spacing(2),alignItems:"center",borderRadius:14,...shadow},
   ctaText:{color:colors.text,fontSize:16,fontWeight:"700"},
 
   bottomDock:{backgroundColor:colors.bg,paddingTop:spacing(2),paddingHorizontal:spacing(2),paddingBottom:spacing(2),borderTopWidth:1,borderTopColor:colors.border},
   quickHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:spacing(1)},
-  sectionTitle:{color:colors.text,fontSize:16,fontWeight:"600"},
   chipsRow:{flexDirection:"row",flexWrap:"wrap",gap:8},
   chip:{flexDirection:"row",alignItems:"center",gap:6,backgroundColor:colors.muted,paddingVertical:8,paddingHorizontal:12,borderRadius:12,marginRight:8,marginBottom:8},
   chipText:{color:colors.text,fontSize:13},
