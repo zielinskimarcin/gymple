@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
   LayoutAnimation, UIManager, Platform, TextInput, ScrollView
@@ -11,7 +11,7 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { popCancelDone, popConfirmDone, popLastAddedExerciseTemp } from "../storage";
-import { DEFAULT_EXERCISES, normalizeName } from "../constants/exercises";
+import { DEFAULT_EXERCISES } from "../constants/exercises";
 import { TEMPLATE_ICON_MAP } from "../constants/templateIcons";
 import { DEFAULT_TEMPLATES } from "../constants/defaultTemplates";
 import { getSelectedTemplateId, setSelectedTemplateId, loadTemplates } from "../storage/templates";
@@ -25,8 +25,6 @@ type SetRowVM = { id: string; weight?: number; reps?: number; timeMin?: number; 
 type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
-
-// fallback gdy brak template'u
 const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 
 export const TrainScreen = () => {
@@ -38,7 +36,7 @@ export const TrainScreen = () => {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
 
-  // templates UI
+  // templates
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
 
@@ -62,7 +60,7 @@ export const TrainScreen = () => {
     setSelectedTplId(sel);
   })(); }, [focused]);
 
-  // last added exercise (from modals)
+  // last added exercise
   useEffect(() => { (async () => {
     if (!active) return;
     const custom = await popLastAddedExerciseTemp();
@@ -83,16 +81,19 @@ export const TrainScreen = () => {
 
   function addDefault(ex:Exercise){
     setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
-    LayoutAnimation.easeInEaseOut();
+    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
   }
-  function toggleExpand(id:string){ LayoutAnimation.easeInEaseOut(); setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e)); }
+  function toggleExpand(id:string){
+    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
+    setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e));
+  }
   function addSet(id:string){ setExList(p=>p.map(e=>e.id===id?{...e,sets:[...e.sets,newDefaultSet(e)]}:e)); }
   function modSet(exId:string,setId:string,delta:Partial<SetRowVM>){
     setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.map(s=>s.id===setId?{...s,...delta}:s)}:e));
   }
   function removeSet(exId:string,setId:string){ setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.filter(s=>s.id!==setId)}:e)); }
   function removeExercise(exId:string){
-    LayoutAnimation.easeInEaseOut();
+    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
     setExList(p=> p.filter(e=>e.id!==exId));
   }
   function finishPreview(){
@@ -111,11 +112,8 @@ export const TrainScreen = () => {
 
   const featuredFromTemplate: Exercise[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    // mapuj ID -> Exercise (z defaultów); jeśli nie znajdzie (np. custom), pokaż dopiero po Search / Add Custom w trakcie
     const map = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
-    return selectedTemplate.exerciseIds
-      .map(id => map.get(id))
-      .filter(Boolean) as Exercise[];
+    return selectedTemplate.exerciseIds.map(id => map.get(id)).filter(Boolean) as Exercise[];
   }, [selectedTemplate]);
 
   const fallbackFeatured: Exercise[] = useMemo(() => {
@@ -130,30 +128,32 @@ export const TrainScreen = () => {
   );
 
   async function onPickTemplate(t: Template | "create") {
-    if (t === "create") {
-      nav.navigate("TemplateEditor" as never);
-      return;
-    }
+    if (t === "create") { nav.navigate("TemplateEditor" as never); return; }
+    // bez animacji (żeby nie migotało)
     setSelectedTplId(t.id);
     await setSelectedTemplateId(t.id);
-    LayoutAnimation.easeInEaseOut();
   }
 
-  // UI kart Template’ów (siatka)
-  function TemplateCard({ t, active }: { t: Template; active: boolean }) {
+  const TemplateCard = memo(function TemplateCard({ t, active }: { t: Template; active: boolean }) {
     return (
-      <TouchableOpacity onPress={() => onPickTemplate(t)} style={[st.tplCard, active && st.tplCardActive]}>
+      <TouchableOpacity
+        onPress={() => onPickTemplate(t)}
+        onLongPress={() => nav.navigate("TemplateEditor" as never, { id: t.id } as never)}
+        style={[st.tplCard, active && st.tplCardActive]}
+        activeOpacity={0.9}
+      >
         <View style={st.tplIconWrap}>
-          <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={22} color={active ? "#0E0E10" : colors.text} />
+          <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={24} color={active ? "#FFFFFF" : colors.text} />
         </View>
-        <Text style={[st.tplName, active && { color: "#0E0E10" }]} numberOfLines={1}>{t.name}</Text>
+        <Text style={[st.tplName, active && { color: "#FFFFFF" }]} numberOfLines={1}>{t.name}</Text>
       </TouchableOpacity>
     );
-  }
+  });
 
   return (
     <SafeAreaView style={st.safe}>
       <View style={st.container}>
+        {/* Header */}
         <View style={st.header}>
           <View>
             <Text style={st.title}>{name}</Text>
@@ -167,27 +167,41 @@ export const TrainScreen = () => {
         </View>
 
         {!active ? (
-          <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
-            {/* GRID TEMPLATES */}
-            <Text style={st.sectionTitle}>Templates</Text>
-            <View style={st.tplGrid}>
-              {templates.map((t) => (
-                <TemplateCard key={t.id} t={t} active={t.id === selectedTplId} />
-              ))}
-              {/* + create */}
-              <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]}>
-                <View style={st.tplIconWrap}>
-                  <Ionicons name="add" size={22} color={colors.text} />
-                </View>
-                <Text style={st.tplName}>Custom</Text>
+          <>
+            {/* START: przyklejony, czerwony z białym napisem */}
+            <View style={st.startDock}>
+              <TouchableOpacity style={st.ctaPrimary} onPress={()=>setActive(true)}>
+                <Text style={st.ctaPrimaryText}>Start workout</Text>
               </TouchableOpacity>
             </View>
 
-            {/* START */}
-            <TouchableOpacity style={[st.cta,{marginTop:spacing(2)}]} onPress={()=>setActive(true)}>
-              <Text style={st.ctaText}>Start workout</Text>
-            </TouchableOpacity>
-          </ScrollView>
+            <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
+              {/* Nagłówek + szare „Edit” (bez ramki/ikonki) */}
+              <View style={st.tplHeader}>
+                <Text style={st.sectionTitle}>Templates</Text>
+                {selectedTplId ? (
+                  <TouchableOpacity onPress={()=>nav.navigate("TemplateEditor" as never, { id: selectedTplId } as never)}>
+                    <Text style={st.editLink}>Edit</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* GRID */}
+              <View style={st.tplGrid}>
+                {templates.map((t) => (
+                  <TemplateCard key={t.id} t={t} active={t.id === selectedTplId} />
+                ))}
+                {/* + create – jak inne, ale z “kreskowanym tłem” */}
+                <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
+                  <View style={st.tplCreateDash} />
+                  <View style={st.tplIconWrap}>
+                    <Ionicons name="add" size={24} color={colors.text} />
+                  </View>
+                  <Text style={st.tplName}>Custom</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </>
         ) : (
           <>
             <FlatList
@@ -283,8 +297,8 @@ export const TrainScreen = () => {
                   <Ionicons name="search-outline" size={14} color={colors.text}/><Text style={st.chipText}>Search</Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={[st.cta,{backgroundColor:colors.accent,marginTop:spacing(2)}]} onPress={finishPreview}>
-                <Text style={[st.ctaText,{color:"#0E0E10"}]}>Finish</Text>
+              <TouchableOpacity style={[st.ctaPrimary,{marginTop:spacing(2)}]} onPress={finishPreview}>
+                <Text style={st.ctaPrimaryText}>Finish</Text>
               </TouchableOpacity>
             </View>
           </>
@@ -380,60 +394,71 @@ const st = StyleSheet.create({
   safe:{flex:1,backgroundColor:colors.bg},
   container:{flex:1,paddingHorizontal:spacing(2)},
   header:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
-  title:{color:colors.text,fontSize:24,fontWeight:"700"},
+  title:{color:colors.text,fontSize:26,fontWeight:"800"},
   subtitle:{color:colors.subtext,marginTop:4},
 
+  // START dock – przyklejony i w kolorze (biały tekst)
+  startDock:{ paddingBottom: spacing(2) },
+  ctaPrimary:{ backgroundColor: colors.accent, paddingVertical: spacing(2.4), alignItems:"center", borderRadius:16, ...shadow },
+  ctaPrimaryText:{ color:"#FFFFFF", fontSize:18, fontWeight:"800" },
+
   // Templates
-  sectionTitle:{color:colors.text,fontSize:16,fontWeight:"600",marginBottom:spacing(1)},
-  tplGrid:{flexDirection:"row",flexWrap:"wrap",gap:12},
+  tplHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginBottom:spacing(1)},
+  sectionTitle:{color:colors.text,fontSize:18,fontWeight:"700"},
+  editLink:{color:colors.subtext,textDecorationLine:"underline",fontSize:13},
+
+  tplGrid:{flexDirection:"row",flexWrap:"wrap",gap:14},
   tplCard:{
     width:"47%",
     backgroundColor:colors.card,
-    borderRadius:16,
-    padding:spacing(2),
-    borderWidth:1,
+    borderRadius:18,
+    padding:spacing(2.2),
+    borderWidth:1.2,
     borderColor:colors.border,
+    overflow:"hidden",
   },
-  tplCardActive:{ borderColor: colors.accent, backgroundColor: "#1d1f23" },
-  tplIconWrap:{width:44,height:44,borderRadius:12,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:10},
-  tplName:{color:colors.text,fontWeight:"700"},
-  tplCreate:{borderStyle:"dashed"},
+  tplCardActive:{ borderColor: colors.accent },
+  tplIconWrap:{width:50,height:50,borderRadius:14,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:12},
+  tplName:{color:colors.text,fontWeight:"800",fontSize:15},
 
-  bottomArea:{paddingBottom:spacing(2)},
-  cta:{backgroundColor:colors.card,paddingVertical:spacing(2),alignItems:"center",borderRadius:14,...shadow},
-  ctaText:{color:colors.text,fontSize:16,fontWeight:"700"},
+  // „Custom” – jak inne, ale z kreskowanym tłem
+  tplCreate:{},
+  tplCreateDash:{
+    position:"absolute", inset:0 as any,
+    borderWidth:1.2, borderColor:colors.border, borderStyle:"dashed", borderRadius:18,
+  },
 
   bottomDock:{backgroundColor:colors.bg,paddingTop:spacing(2),paddingHorizontal:spacing(2),paddingBottom:spacing(2),borderTopWidth:1,borderTopColor:colors.border},
   quickHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:spacing(1)},
   chipsRow:{flexDirection:"row",flexWrap:"wrap",gap:8},
-  chip:{flexDirection:"row",alignItems:"center",gap:6,backgroundColor:colors.muted,paddingVertical:8,paddingHorizontal:12,borderRadius:12,marginRight:8,marginBottom:8},
-  chipText:{color:colors.text,fontSize:13},
+  chip:{flexDirection:"row",alignItems:"center",gap:6,backgroundColor:colors.muted,paddingVertical:10,paddingHorizontal:14,borderRadius:12,marginRight:8,marginBottom:8},
+  chipText:{color:colors.text,fontSize:14,fontWeight:"600"},
   searchChip:{backgroundColor:"#2A2D33"},
 
-  exerciseCard:{backgroundColor:colors.card,borderRadius:14,padding:spacing(2),marginBottom:spacing(1.5),borderWidth:1,borderColor:colors.border},
+  exerciseCard:{backgroundColor:colors.card,borderRadius:16,padding:spacing(2.2),marginBottom:spacing(1.8),borderWidth:1,borderColor:colors.border},
   exerciseHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
-  iconBadge:{backgroundColor:colors.muted,width:28,height:28,borderRadius:8,alignItems:"center",justifyContent:"center"},
+  iconBadge:{backgroundColor:colors.muted,width:30,height:30,borderRadius:10,alignItems:"center",justifyContent:"center"},
   exerciseName:{color:colors.text,fontSize:16,fontWeight:"600"},
   setHint:{color:colors.subtext,fontSize:12},
   pillButton:{flexDirection:"row",alignItems:"center",gap:6,paddingVertical:8,paddingHorizontal:12,borderRadius:999},
   pillText:{color:colors.text,fontWeight:"600"},
 
   setRow:{flexDirection:"row",alignItems:"center",paddingVertical:8},
-  setIndex:{color:colors.subtext,width:16,textAlign:"right",marginRight:6},
+  setIndex:{color:colors.subtext,width:18,textAlign:"right",marginRight:6},
 
   addSetBtn:{flexDirection:"row",gap:6,alignItems:"center",paddingVertical:8},
   addSetTxt:{color:colors.text,fontWeight:"600"},
 
   // kapsuły flex
   counter:{
-    flex:1, minWidth:96, maxWidth:148,
+    flex:1, minWidth:100, maxWidth:152,
     flexDirection:"row", alignItems:"center",
     backgroundColor:colors.muted, borderRadius:10,
     paddingHorizontal:6, paddingVertical:6, marginRight:6,
   },
   counterBtn:{paddingHorizontal:4,paddingVertical:2},
   counterInput:{
-    flexGrow:1, minWidth:32, maxWidth:56,
+    flexGrow:1, minWidth:34, maxWidth:60,
     color:colors.text, textAlign:"center", fontWeight:"700",
     paddingVertical:0, paddingHorizontal:2,
   },
