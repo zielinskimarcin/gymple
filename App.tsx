@@ -1,8 +1,11 @@
+// App.tsx
 import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DarkTheme, Theme } from "@react-navigation/native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
+import { AuthProvider } from "./src/auth/AuthProvider";
 
 const appTheme: Theme = {
   ...DarkTheme,
@@ -19,9 +22,13 @@ const appTheme: Theme = {
 
 export default function App() {
   return (
-    <NavigationContainer theme={appTheme}>
-      <StatusBar style="light" />
-      <AppNavigator />
-    </NavigationContainer>
+    <AuthProvider>
+      <SafeAreaProvider>
+        <NavigationContainer theme={appTheme}>
+          <StatusBar style="light" />
+          <AppNavigator />
+        </NavigationContainer>
+      </SafeAreaProvider>
+    </AuthProvider>
   );
 }
