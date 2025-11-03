@@ -6,36 +6,29 @@ import { loadCustomExercises, setLastAddedExerciseTemp } from "../storage";
 import type { Exercise } from "../types";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-
-const DEFAULTS: Exercise[] = [
-  { id: "bench", name: "Bench Press", muscleGroup: "Chest" },
-  { id: "squat", name: "Back Squat", muscleGroup: "Legs" },
-  { id: "deadlift", name: "Deadlift", muscleGroup: "Back" },
-  { id: "ohp", name: "Overhead Press", muscleGroup: "Shoulders" },
-  { id: "row", name: "Barbell Row", muscleGroup: "Back" },
-  { id: "pullup", name: "Pull-Up", muscleGroup: "Back" },
-  { id: "rdl", name: "Romanian Deadlift", muscleGroup: "Legs" },
-  { id: "curl", name: "Barbell Curl", muscleGroup: "Arms" },
-  { id: "pushdown", name: "Triceps Pushdown", muscleGroup: "Arms" },
-  { id: "plank", name: "Plank", muscleGroup: "Core" },
-];
+import { DEFAULT_EXERCISES, sortByAlpha, sortByGroup, type SortMode } from "../constants/exercises";
 
 export const SearchExerciseModal = () => {
   const nav = useNavigation();
   const [custom, setCustom] = useState<Exercise[]>([]);
   const [q, setQ] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("group"); // domyślnie: Group
 
   useEffect(() => {
     (async () => setCustom(await loadCustomExercises()))();
   }, []);
 
-  const all = useMemo(() => [...DEFAULTS, ...custom], [custom]);
+  const all = useMemo(() => [...DEFAULT_EXERCISES, ...custom], [custom]);
 
   const results = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!t) return all;
-    return all.filter((e) => e.name.toLowerCase().includes(t) || e.muscleGroup.toLowerCase().includes(t));
-  }, [q, all]);
+    const base = t
+      ? all.filter((e) => e.name.toLowerCase().includes(t) || e.muscleGroup.toLowerCase().includes(t))
+      : all.slice();
+
+    base.sort(sortMode === "group" ? sortByGroup : sortByAlpha);
+    return base;
+  }, [q, all, sortMode]);
 
   async function pick(ex: Exercise) {
     await setLastAddedExerciseTemp(ex);
@@ -54,6 +47,28 @@ export const SearchExerciseModal = () => {
             placeholderTextColor={colors.subtext}
             style={s.input}
           />
+        </View>
+
+        {/* Toggle sortowania: Group / A–Z */}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => setSortMode("group")}
+            style={[
+              s.sortBtn,
+              { backgroundColor: sortMode === "group" ? colors.card : "transparent", borderColor: colors.border },
+            ]}
+          >
+            <Text style={{ color: colors.text }}>Group</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setSortMode("alpha")}
+            style={[
+              s.sortBtn,
+              { backgroundColor: sortMode === "alpha" ? colors.card : "transparent", borderColor: colors.border },
+            ]}
+          >
+            <Text style={{ color: colors.text }}>A–Z</Text>
+          </TouchableOpacity>
         </View>
 
         <FlatList
@@ -76,8 +91,31 @@ export const SearchExerciseModal = () => {
 };
 
 const s = StyleSheet.create({
-  input: { flex: 1, backgroundColor: colors.card, color: colors.text, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: colors.border },
-  row: { backgroundColor: colors.card, borderRadius: 12, padding: spacing(2), borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  input: {
+    flex: 1,
+    backgroundColor: colors.card,
+    color: colors.text,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sortBtn: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  row: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: spacing(2),
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   name: { color: colors.text, fontWeight: "700" },
   sub: { color: colors.subtext, marginTop: 2 },
   badge: { color: colors.subtext, fontSize: 11 },

@@ -11,6 +11,7 @@ import { useIsFocused, useNavigation } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { popCancelDone, popConfirmDone, popLastAddedExerciseTemp } from "../storage";
+import { DEFAULT_EXERCISES } from "../constants/exercises";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -20,13 +21,10 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type SetRowVM = { id: string; weight?: number; reps?: number; timeMin?: number; distance?: number };
 type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
-const DEFAULTS: Exercise[] = [
-  { id: "bench", name: "Bench Press", muscleGroup: "Chest" },
-  { id: "squat", name: "Back Squat", muscleGroup: "Legs" },
-  { id: "deadlift", name: "Deadlift", muscleGroup: "Back" },
-  { id: "ohp", name: "Overhead Press", muscleGroup: "Shoulders" },
-];
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+// ❇️ Pokazujemy tylko te 4 chipy na dole:
+const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 
 export const TrainScreen = () => {
   const nav = useNavigation<Nav>();
@@ -68,14 +66,20 @@ export const TrainScreen = () => {
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
   const newDefaultSet = (ex:Exercise):SetRowVM => isCardio(ex)? {id:uid(), timeMin:5, distance:0.5}:{id:uid(), weight:20, reps:8};
 
-  function addDefault(ex:Exercise){ setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]); }
+  function addDefault(ex:Exercise){
+    setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
+    LayoutAnimation.easeInEaseOut(); // płynne schowanie chipu
+  }
   function toggleExpand(id:string){ LayoutAnimation.easeInEaseOut(); setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e)); }
   function addSet(id:string){ setExList(p=>p.map(e=>e.id===id?{...e,sets:[...e.sets,newDefaultSet(e)]}:e)); }
   function modSet(exId:string,setId:string,delta:Partial<SetRowVM>){
     setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.map(s=>s.id===setId?{...s,...delta}:s)}:e));
   }
   function removeSet(exId:string,setId:string){ setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.filter(s=>s.id!==setId)}:e)); }
-  function removeExercise(exId:string){ setExList(p=> p.filter(e=>e.id!==exId)); }
+  function removeExercise(exId:string){
+    LayoutAnimation.easeInEaseOut(); // płynne pokazanie wracającego chipu
+    setExList(p=> p.filter(e=>e.id!==exId));
+  }
   function finishPreview(){
     if(!active) return;
     nav.navigate("WorkoutDetail",{ preview:{
@@ -84,11 +88,22 @@ export const TrainScreen = () => {
     }, mode:"preview" });
   }
 
+  // 🔎 TYLKO 4 featured domyślne ćwiczenia i tylko te, których jeszcze nie ma w exList
+  const featuredDefaults = useMemo(() => {
+    const chosen = DEFAULT_EXERCISES.filter(d => FEATURED_DEFAULT_IDS.includes(d.id as any));
+    // zachowaj kolejność jak w FEATURED_DEFAULT_IDS
+    chosen.sort((a,b)=> FEATURED_DEFAULT_IDS.indexOf(a.id as any) - FEATURED_DEFAULT_IDS.indexOf(b.id as any));
+    return chosen.filter(d => !exList.some(e => e.id === d.id));
+  }, [exList]);
+
   return (
     <SafeAreaView style={st.safe}>
       <View style={st.container}>
         <View style={st.header}>
-          <View><Text style={st.title}>{name}</Text><Text style={st.subtitle}>{subtitle}</Text></View>
+          <View>
+            <Text style={st.title}>{name}</Text>
+            <Text style={st.subtitle}>{subtitle}</Text>
+          </View>
           {active && (
             <TouchableOpacity style={[st.pillButton,{backgroundColor:"#2E3136"}]} onPress={clearState}>
               <Ionicons name="close" size={18} color={colors.text}/><Text style={st.pillText}>Cancel</Text>
@@ -98,7 +113,9 @@ export const TrainScreen = () => {
 
         {!active ? (
           <View style={st.bottomArea}>
-            <TouchableOpacity style={st.cta} onPress={()=>setActive(true)}><Text style={st.ctaText}>Start workout</Text></TouchableOpacity>
+            <TouchableOpacity style={st.cta} onPress={()=>setActive(true)}>
+              <Text style={st.ctaText}>Start workout</Text>
+            </TouchableOpacity>
           </View>
         ) : (
           <>
@@ -126,7 +143,6 @@ export const TrainScreen = () => {
 
                           {!isCardio(item) ? (
                             <>
-                              {/* KG (float, max 4 cyfry) */}
                               <NumCounter
                                 label="kg"
                                 mode="float"
@@ -136,7 +152,6 @@ export const TrainScreen = () => {
                                 onPlus={() => modSet(item.id,s.id,{weight:(s.weight??20)+2.5})}
                                 onType={(v)=>modSet(item.id,s.id,{weight:v})}
                               />
-                              {/* REPS (int, max 4 cyfry) */}
                               <NumCounter
                                 label="reps"
                                 mode="int"
@@ -149,7 +164,6 @@ export const TrainScreen = () => {
                             </>
                           ) : (
                             <>
-                              {/* cardio: km (L) + min (R) */}
                               <NumCounter
                                 label="km"
                                 value={s.distance ?? 0.5}
@@ -189,7 +203,7 @@ export const TrainScreen = () => {
                 <TouchableOpacity onPress={()=>nav.navigate("AddExercise")}><Text style={{color:colors.accent,fontWeight:"700"}}>Custom +</Text></TouchableOpacity>
               </View>
               <View style={st.chipsRow}>
-                {DEFAULTS.map(ex=>(
+                {featuredDefaults.map(ex=>(
                   <TouchableOpacity key={ex.id} style={st.chip} onPress={()=>addDefault(ex)}>
                     <Text style={st.chipText}>{ex.name}</Text>
                   </TouchableOpacity>
@@ -215,8 +229,8 @@ function NumCounter({
   onMinus,
   onPlus,
   onType,
-  mode = "float",      // "int" | "float"
-  maxDigits = 4,       // limit cyfr przed kropką
+  mode = "float",
+  maxDigits = 4,
 }: {
   label: string;
   value: number;
@@ -228,7 +242,6 @@ function NumCounter({
 }) {
   const [text, setText] = React.useState(String(value ?? ""));
 
-  // aktualizuj tekst gdy value zmienia się z zewnątrz (np. + / -)
   React.useEffect(() => {
     const asText = text === "" ? "" : String(value ?? "");
     if (asText !== text) setText(asText);
@@ -236,7 +249,7 @@ function NumCounter({
   }, [value]);
 
   function applyLimitAndSet(t: string) {
-    if (t === "") { setText(""); return; }        // pozwól wyczyścić do pustego
+    if (t === "") { setText(""); return; }
     t = t.replace(",", ".");
 
     if (mode === "int") {
@@ -255,7 +268,7 @@ function NumCounter({
   }
 
   function commitIfNeeded() {
-    if (text === "") return;                      // zostawiamy puste podczas edycji
+    if (text === "") return;
     const num = Number(text);
     if (!Number.isNaN(num)) onType(num);
   }
@@ -273,7 +286,7 @@ function NumCounter({
         inputMode="decimal"
         onChangeText={applyLimitAndSet}
         onBlur={() => {
-          if (text === "") { setText("0"); onType(0); return; } // stabilizujemy po blurze
+          if (text === "") { setText("0"); onType(0); return; }
           commitIfNeeded();
         }}
         returnKeyType="done"
@@ -324,7 +337,7 @@ const st = StyleSheet.create({
   addSetBtn:{flexDirection:"row",gap:6,alignItems:"center",paddingVertical:8},
   addSetTxt:{color:colors.text,fontWeight:"600"},
 
-  // PŁYNNE KAPSURY (flex): mieszczą się zawsze; kosz ma priorytet
+  // kapsuły flex
   counter:{
     flex:1, minWidth:96, maxWidth:148,
     flexDirection:"row", alignItems:"center",
