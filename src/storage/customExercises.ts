@@ -1,0 +1,76 @@
+// src/storage/customExercises.ts
+import { supabase } from "../lib/supabase";
+
+export type Exercise = {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  isCustom?: boolean;
+  createdAt?: number;
+};
+
+// === READ: wszystkie custom usera ===
+export async function fetchCustomExercises(): Promise<Exercise[]> {
+  const { data, error } = await supabase
+    .from("custom_exercises")
+    .select("id,name,muscle_group,created_at")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.warn("[fetchCustomExercises]", error.message);
+    return [];
+  }
+  return (data || []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    muscleGroup: r.muscle_group,
+    isCustom: true,
+    createdAt: r.created_at ? new Date(r.created_at).getTime() : undefined,
+  }));
+}
+
+// === CREATE: jedno ćwiczenie ===
+export async function createCustomExercise(name: string, muscleGroup: string) {
+  const { data: u } = await supabase.auth.getUser();
+  const userId = u?.user?.id;
+  if (!userId) return { ok: false, error: "Not authenticated" };
+
+  const id = "c_" + Date.now();
+  const row = { id, user_id: userId, name, muscle_group: muscleGroup };
+
+  const { error } = await supabase.from("custom_exercises").insert(row);
+  if (error) {
+    // 23505 = unique_violation (mamy unique (user_id, lower(name)))
+    if ((error as any).code === "23505") return { ok: false, error: "This exercise already exists." };
+    return { ok: false, error: error.message };
+  }
+
+  return {
+    ok: true,
+    ex: <Exercise>{ id, name, muscleGroup, isCustom: true, createdAt: Date.now() },
+  };
+}
+
+// === UPDATE: po id ===
+export async function updateCustomExercise(id: string, patch: Partial<Pick<Exercise, "name" | "muscleGroup">>) {
+  const { data: u } = await supabase.auth.getUser();
+  const userId = u?.user?.id;
+  if (!userId) return { ok: false, error: "Not authenticated" };
+
+  const upd: any = {};
+  if (patch.name != null) upd.name = patch.name;
+  if (patch.muscleGroup != null) upd.muscle_group = patch.muscleGroup;
+
+  const { error } = await supabase.from("custom_exercises").update(upd).eq("id", id).eq("user_id", userId);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// === DELETE: po id ===
+export async function deleteCustomExercise(id: string) {
+  const { data: u } = await supabase.auth.getUser();
+  const userId = u?.user?.id;
+  if (!userId) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase.from("custom_exercises").delete().eq("id", id).eq("user_id", userId);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}

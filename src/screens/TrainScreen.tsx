@@ -1,3 +1,4 @@
+// src/screens/TrainScreen.tsx
 import React, { useEffect, useMemo, useRef, useState, memo } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
@@ -7,14 +8,17 @@ import { colors, spacing, shadow } from "../theme";
 import { Ionicons } from "@expo/vector-icons";
 import type { Exercise, Template } from "../types";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { popCancelDone, popConfirmDone, popLastAddedExerciseTemp } from "../storage";
+
+import { popCancelDone, popConfirmDone } from "../storage";
+import { popLastAddedExerciseTemp } from "../storage/lastAdded";
 import { DEFAULT_EXERCISES } from "../constants/exercises";
 import { TEMPLATE_ICON_MAP } from "../constants/templateIcons";
 import { DEFAULT_TEMPLATES } from "../constants/defaultTemplates";
 import { getSelectedTemplateId, setSelectedTemplateId, loadTemplates } from "../storage/templates";
+import { fetchCustomExercises } from "../storage/customExercises";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -30,6 +34,7 @@ const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 export const TrainScreen = () => {
   const nav = useNavigation<Nav>();
   const focused = useIsFocused();
+
   const [active, setActive] = useState(false);
   const [name, setName] = useState("Workout");
   const [exList, setExList] = useState<ExVM[]>([]);
@@ -39,6 +44,12 @@ export const TrainScreen = () => {
   // templates
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
+
+  // custom exercises from DB (for featured chips and mapping)
+  const [customDb, setCustomDb] = useState<Exercise[]>([]);
+
+  // ad-hoc featured (dodane w trakcie tej sesji)
+  const [sessionFeaturedIds, setSessionFeaturedIds] = useState<Set<string>>(new Set());
 
   // timer
   useEffect(() => {
@@ -52,20 +63,47 @@ export const TrainScreen = () => {
     return () => t && clearInterval(t);
   }, [active]);
 
-  // load templates on focus
-  useEffect(() => { (async () => {
-    const user = await loadTemplates();
-    setTemplates([...DEFAULT_TEMPLATES, ...user]);
-    const sel = await getSelectedTemplateId();
-    setSelectedTplId(sel);
-  })(); }, [focused]);
+  // load templates, selected id, custom DB when focused
+  useEffect(() => {
+    (async () => {
+      const userTpls = await loadTemplates();
+      setTemplates([...DEFAULT_TEMPLATES, ...userTpls]);
+      const sel = await getSelectedTemplateId();
+      setSelectedTplId(sel);
 
-  // last added exercise
-  useEffect(() => { (async () => {
-    if (!active) return;
-    const custom = await popLastAddedExerciseTemp();
-    if (custom) setExList(prev => prev.find(p => p.id===custom.id)? prev : [...prev, {...custom, sets:[], expanded:true}]);
-  })(); }, [focused, active]);
+      const cx = await fetchCustomExercises();
+      setCustomDb(cx);
+    })();
+  }, [focused]);
+
+  // consume lastAdded ALWAYS on focus return (so editor won't auto-add to template)
+  useFocusEffect(
+    React.useCallback(() => {
+      let alive = true;
+      (async () => {
+        const just = await popLastAddedExerciseTemp(); // konsumujemy „last added” niezależnie od active
+        if (!alive || !just) return;
+
+        // upewnij się, że mamy to ćwiczenie w mapie (allById) natychmiast
+        setCustomDb((prev) => [just, ...prev.filter((p) => p.id !== just.id)]);
+
+        if (active) {
+          // w trakcie treningu: dodajemy je od razu do listy (expanded)
+          setExList((prev) => prev.find((p) => p.id === just.id) ? prev : [...prev, { ...just, sets: [], expanded: true }]);
+          // oraz zaznaczamy jako sesyjny chip (jeśli później usuniesz z listy, pojawi się na dole)
+          setSessionFeaturedIds((prev) => {
+            const next = new Set(prev);
+            next.add(just.id);
+            return next;
+          });
+          LayoutAnimation.configureNext(LayoutAnimation.create(120, "easeInEaseOut", "opacity"));
+        } else {
+          // nieaktywny trening – po prostu konsumujemy, bez wpływu na template
+        }
+      })();
+      return () => { alive = false; };
+    }, [active])
+  );
 
   // flags from Summary
   useEffect(() => { (async () => {
@@ -73,7 +111,14 @@ export const TrainScreen = () => {
     const cancel = await popCancelDone(); if (cancel) clearState();
   })(); }, [focused]);
 
-  function clearState(){ setActive(false); setExList([]); setName("Workout"); startRef.current=null; setElapsed(0); }
+  function clearState(){
+    setActive(false);
+    setExList([]);
+    setName("Workout");
+    startRef.current=null;
+    setElapsed(0);
+    setSessionFeaturedIds(new Set()); // reset sesyjnych chipów po zakończeniu
+  }
 
   const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"Tap Start to begin",[active,elapsed]);
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
@@ -81,6 +126,8 @@ export const TrainScreen = () => {
 
   function addDefault(ex:Exercise){
     setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
+    // ćwiczenie dodane z chipów też zasługuje na status „sesyjny” (po usunięciu pojawi się znowu)
+    setSessionFeaturedIds(prev => new Set(prev).add(ex.id));
     LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
   }
   function toggleExpand(id:string){
@@ -95,6 +142,8 @@ export const TrainScreen = () => {
   function removeExercise(exId:string){
     LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
     setExList(p=> p.filter(e=>e.id!==exId));
+    // po usunięciu – upewnij się, że będzie jako chip
+    setSessionFeaturedIds(prev => new Set(prev).add(exId));
   }
   function finishPreview(){
     if(!active) return;
@@ -104,32 +153,65 @@ export const TrainScreen = () => {
     }, mode:"preview" });
   }
 
-  // Featured z Template’u albo fallback
+  // wybrany template
   const selectedTemplate = useMemo(
     () => templates.find(t => t.id === selectedTplId) || null,
     [templates, selectedTplId]
   );
 
+  // mapa wszystkich ćwiczeń (default + custom z DB + ewentualne świeże dodane już dorzucamy do customDb wyżej)
+  const allById = useMemo(() => {
+    const map = new Map<string, Exercise>();
+    for (const e of DEFAULT_EXERCISES) map.set(e.id, e);
+    for (const e of customDb) map.set(e.id, e);
+    return map;
+  }, [customDb]);
+
+  // featured z template (obsługuje custom)
   const featuredFromTemplate: Exercise[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    const map = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
-    return selectedTemplate.exerciseIds.map(id => map.get(id)).filter(Boolean) as Exercise[];
-  }, [selectedTemplate]);
+    return selectedTemplate.exerciseIds
+      .map(id => allById.get(id))
+      .filter(Boolean) as Exercise[];
+  }, [selectedTemplate, allById]);
 
+  // fallback 4 bazowe
   const fallbackFeatured: Exercise[] = useMemo(() => {
     const byId = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
     return FEATURED_DEFAULT_IDS.map(id => byId.get(id)).filter(Boolean) as Exercise[];
   }, []);
 
-  const visibleFeatured = useMemo(
-    () => (featuredFromTemplate.length ? featuredFromTemplate : fallbackFeatured)
-      .filter(d => !exList.some(e => e.id === d.id)),
-    [featuredFromTemplate, fallbackFeatured, exList]
-  );
+  // sesyjne ad-hoc (IDs -> obiekty)
+  const sessionFeatured: Exercise[] = useMemo(() => {
+    const out: Exercise[] = [];
+    sessionFeaturedIds.forEach((id) => {
+      const ex = allById.get(id);
+      if (ex) out.push(ex);
+    });
+    return out;
+  }, [sessionFeaturedIds, allById]);
+
+  // unikaj duplikatów po id
+  function uniqById<T extends { id: string }>(arr: T[]): T[] {
+    const seen = new Set<string>();
+    const out: T[] = [];
+    for (const it of arr) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+    }
+    return out;
+  }
+
+  // widoczne chipsy = template/fallback + sesyjne ad-hoc, minus już dodane do listy
+  const visibleFeatured = useMemo(() => {
+    const base = featuredFromTemplate.length ? featuredFromTemplate : fallbackFeatured;
+    const merged = uniqById<Exercise>([...base, ...sessionFeatured]);
+    return merged.filter(d => !exList.some(e => e.id === d.id));
+  }, [featuredFromTemplate, fallbackFeatured, sessionFeatured, exList]);
 
   async function onPickTemplate(t: Template | "create") {
     if (t === "create") { nav.navigate("TemplateEditor" as never); return; }
-    // bez animacji (żeby nie migotało)
     setSelectedTplId(t.id);
     await setSelectedTemplateId(t.id);
   }
@@ -154,21 +236,41 @@ export const TrainScreen = () => {
     <SafeAreaView style={st.safe}>
       <View style={st.container}>
         {/* Header */}
-        <View style={st.header}>
-          <View>
+        {!active ? (
+          <View style={st.topBar}>
             <Text style={st.title}>{name}</Text>
-            <Text style={st.subtitle}>{subtitle}</Text>
+            <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
+              <TouchableOpacity
+                onPress={() => nav.navigate("Settings" as never)}
+                style={st.topIconBtn}
+                hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+              >
+                <Ionicons name="settings-outline" size={18} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => nav.navigate("Profile" as never)}
+                style={st.topIconBtn}
+                hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+              >
+                <Ionicons name="person-circle-outline" size={20} color={colors.text} />
+              </TouchableOpacity>
+            </View>
           </View>
-          {active && (
+        ) : (
+          <View style={st.headerActive}>
+            <View>
+              <Text style={st.title}>{name}</Text>
+              <Text style={st.subtitle}>{subtitle}</Text>
+            </View>
             <TouchableOpacity style={[st.pillButton,{backgroundColor:"#2E3136"}]} onPress={clearState}>
               <Ionicons name="close" size={18} color={colors.text}/><Text style={st.pillText}>Cancel</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
 
         {!active ? (
           <>
-            {/* START: przyklejony, czerwony z białym napisem */}
+            {/* START dock */}
             <View style={st.startDock}>
               <TouchableOpacity style={st.ctaPrimary} onPress={()=>setActive(true)}>
                 <Text style={st.ctaPrimaryText}>Start workout</Text>
@@ -176,7 +278,7 @@ export const TrainScreen = () => {
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
-              {/* Nagłówek + szare „Edit” (bez ramki/ikonki) */}
+              {/* Templates header + Edit */}
               <View style={st.tplHeader}>
                 <Text style={st.sectionTitle}>Templates</Text>
                 {selectedTplId ? (
@@ -191,7 +293,7 @@ export const TrainScreen = () => {
                 {templates.map((t) => (
                   <TemplateCard key={t.id} t={t} active={t.id === selectedTplId} />
                 ))}
-                {/* + create – jak inne, ale z “kreskowanym tłem” */}
+                {/* + create – dashed */}
                 <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
                   <View style={st.tplCreateDash} />
                   <View style={st.tplIconWrap}>
@@ -393,11 +495,16 @@ function round1(n:number){return Math.round(n*10)/10;}
 const st = StyleSheet.create({
   safe:{flex:1,backgroundColor:colors.bg},
   container:{flex:1,paddingHorizontal:spacing(2)},
-  header:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+
+  // Start screen top bar: title left + two icons right (same height as History)
+  topBar:{paddingVertical:spacing(1.2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+  topIconBtn:{padding:8,borderRadius:10,backgroundColor:colors.card,borderWidth:1,borderColor:colors.border},
+
+  headerActive:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
   title:{color:colors.text,fontSize:26,fontWeight:"800"},
   subtitle:{color:colors.subtext,marginTop:4},
 
-  // START dock – przyklejony i w kolorze (biały tekst)
+  // START dock – fixed style
   startDock:{ paddingBottom: spacing(2) },
   ctaPrimary:{ backgroundColor: colors.accent, paddingVertical: spacing(2.4), alignItems:"center", borderRadius:16, ...shadow },
   ctaPrimaryText:{ color:"#FFFFFF", fontSize:18, fontWeight:"800" },
@@ -421,7 +528,7 @@ const st = StyleSheet.create({
   tplIconWrap:{width:50,height:50,borderRadius:14,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:12},
   tplName:{color:colors.text,fontWeight:"800",fontSize:15},
 
-  // „Custom” – jak inne, ale z kreskowanym tłem
+  // „Custom” – dashed background
   tplCreate:{},
   tplCreateDash:{
     position:"absolute", inset:0 as any,
@@ -449,7 +556,7 @@ const st = StyleSheet.create({
   addSetBtn:{flexDirection:"row",gap:6,alignItems:"center",paddingVertical:8},
   addSetTxt:{color:colors.text,fontWeight:"600"},
 
-  // kapsuły flex
+  // counter capsules
   counter:{
     flex:1, minWidth:100, maxWidth:152,
     flexDirection:"row", alignItems:"center",

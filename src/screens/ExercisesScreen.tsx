@@ -2,10 +2,23 @@ import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, FlatList } from "react-native";
 import { colors, spacing } from "../theme";
 import type { Exercise } from "../types";
-import { loadCustomExercises } from "../storage";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { DEFAULT_EXERCISES, MUSCLE_GROUPS } from "../constants/exercises"; // ⬅️ jedno źródło
+import { Ionicons } from "@expo/vector-icons";
+import { listCustomExercises } from "../storage/remoteCustomExercises";
+
+const DEFAULTS: Exercise[] = [
+  { id: "bench", name: "Bench Press", muscleGroup: "Chest" },
+  { id: "incline_db", name: "Incline DB Press", muscleGroup: "Chest" },
+  { id: "row", name: "Barbell Row", muscleGroup: "Back" },
+  { id: "pullup", name: "Pull-Up", muscleGroup: "Back" },
+  { id: "squat", name: "Back Squat", muscleGroup: "Legs" },
+  { id: "rdl", name: "Romanian Deadlift", muscleGroup: "Legs" },
+  { id: "ohp", name: "Overhead Press", muscleGroup: "Shoulders" },
+  { id: "curl", name: "Barbell Curl", muscleGroup: "Arms" },
+  { id: "pushdown", name: "Triceps Pushdown", muscleGroup: "Arms" },
+  { id: "plank", name: "Plank", muscleGroup: "Core" },
+];
 
 type GroupRow = { type: "header"; title: string } | { type: "item"; ex: Exercise };
 
@@ -16,35 +29,28 @@ export const ExercisesScreen = () => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    (async () => setCustom(await loadCustomExercises()))();
+    (async () => {
+      try {
+        const list = await listCustomExercises();
+        setCustom(list as any);
+      } catch (e) {
+        // ewentualnie można pokazać toast, ale nie zaburzajmy ekranu
+        setCustom([]);
+      }
+    })();
   }, [focused]);
 
-  const all = useMemo(() => [...DEFAULT_EXERCISES, ...custom], [custom]);
+  const all = useMemo(() => [...DEFAULTS, ...custom], [custom]);
 
   const groups = useMemo(() => {
     const by = new Map<string, Exercise[]>();
     for (const ex of all) {
-      const g = ex.muscleGroup || "Other";
-      if (!by.has(g)) by.set(g, []);
-      by.get(g)!.push(ex);
+      if (!by.has(ex.muscleGroup)) by.set(ex.muscleGroup, []);
+      by.get(ex.muscleGroup)!.push(ex);
     }
-
-    const entries = Array.from(by.entries());
-    // sortuj wg ustalonej kolejności MUSCLE_GROUPS, a nie alfabetycznie
-    entries.sort((a, b) => {
-      const ia = MUSCLE_GROUPS.indexOf(a[0] as any);
-      const ib = MUSCLE_GROUPS.indexOf(b[0] as any);
-      const A = ia === -1 ? Number.MAX_SAFE_INTEGER : ia;
-      const B = ib === -1 ? Number.MAX_SAFE_INTEGER : ib;
-      if (A !== B) return A - B;
-      // w obrębie grupy sort po nazwie
-      return a[0].localeCompare(b[0]);
-    });
-
-    return entries.map(([title, data]) => ({
-      title,
-      data: data.slice().sort((x, y) => x.name.localeCompare(y.name)),
-    }));
+    return Array.from(by.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([title, data]) => ({ title, data }));
   }, [all]);
 
   const rows: GroupRow[] = useMemo(() => {
@@ -60,24 +66,50 @@ export const ExercisesScreen = () => {
 
   function onPressExercise(item: Exercise) {
     if (item.isCustom) {
-      // @ts-ignore
-      nav.navigate("EditCustomExercise", { id: item.id });
+      nav.navigate("EditCustomExercise" as never, { id: item.id } as never);
     }
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={styles.container}>
-        <View style={styles.top}>
+        {/* Header */}
+        <View style={styles.header}>
           <Text style={styles.title}>Exercises</Text>
-          <TouchableOpacity onPress={() => nav.navigate("AddExercise" as never)}>
-            <Text style={{ color: colors.accent, fontWeight: "800" }}>Add +</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {/* Add (czerwony w ramce) */}
+            <TouchableOpacity
+              onPress={() => nav.navigate("AddExercise" as never)}
+              style={styles.addBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="add" size={16} color={colors.accent} />
+              <Text style={styles.addBtnText}>Add</Text>
+            </TouchableOpacity>
+
+            {/* Settings */}
+            <TouchableOpacity
+              onPress={() => nav.navigate("Settings" as never)}
+              style={styles.ghostBtn}
+            >
+              <Ionicons name="settings-outline" size={18} color={colors.text} />
+            </TouchableOpacity>
+
+            {/* Profile */}
+            <TouchableOpacity
+              onPress={() => nav.navigate("Profile" as never)}
+              style={styles.ghostBtn}
+            >
+              <Ionicons name="person-outline" size={18} color={colors.text} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <FlatList
           data={rows}
-          keyExtractor={(row, i) => ("type" in row && row.type === "header" ? `h_${row.title}` : `i_${row.ex.id}_${i}`)}
+          keyExtractor={(row, i) =>
+            "type" in row && row.type === "header" ? `h_${row.title}` : `i_${row.ex.id}_${i}`
+          }
           renderItem={({ item }) =>
             item.type === "header" ? (
               <TouchableOpacity
@@ -108,8 +140,40 @@ export const ExercisesScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, padding: spacing(2) },
-  top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing(2) },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing(2),
+  },
   title: { color: colors.text, fontSize: 24, fontWeight: "700" },
+
+  // Add (czerwony w ramce)
+  addBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.card,
+    borderWidth: 1.2,
+    borderColor: colors.accent,
+  },
+  addBtnText: { color: colors.accent, fontWeight: "800" },
+
+  // ghost buttons
+  ghostBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
   headerRow: {
     flexDirection: "row",

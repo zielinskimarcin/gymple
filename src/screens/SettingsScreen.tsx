@@ -1,51 +1,36 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, Switch } from "react-native";
+import React from "react";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { colors, spacing } from "../theme";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 
 export const SettingsScreen = () => {
-  const [dark, setDark] = useState(true);
-  const [kg, setKg] = useState(true);
-  const [en, setEn] = useState(true);
-
+  const nav = useNavigation();
   return (
-    <SafeAreaView style={{ flex:1, backgroundColor: colors.bg }}>
-      <View style={s.container}>
-        <Text style={s.title}>Settings</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", padding: spacing(2) }}>
+        <Text style={{ color: colors.text, fontWeight: "700", fontSize: 18 }}>Settings</Text>
+        <TouchableOpacity
+          onPress={() => nav.goBack()}
+          style={s.iconBtn}
+          hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+        >
+          <Ionicons name="close" size={18} color={colors.text} />
+        </TouchableOpacity>
+      </View>
 
-        <View style={s.row}>
-          <Text style={s.key}>Theme</Text>
-          <View style={s.valueRow}>
-            <Text style={s.valTxt}>{dark ? "Dark" : "Light"}</Text>
-            <Switch value={dark} onValueChange={setDark} />
-          </View>
-        </View>
-
-        <View style={s.row}>
-          <Text style={s.key}>Units</Text>
-          <View style={s.valueRow}>
-            <Text style={s.valTxt}>{kg ? "kg" : "lbs"}</Text>
-            <Switch value={kg} onValueChange={setKg} />
-          </View>
-        </View>
-
-        <View style={s.row}>
-          <Text style={s.key}>Language</Text>
-          <View style={s.valueRow}>
-            <Text style={s.valTxt}>{en ? "English" : "Polski"}</Text>
-            <Switch value={en} onValueChange={setEn} />
-          </View>
-        </View>
+      {/* TODO: Twoje przełączniki (theme, kg/lbs, language) */}
+      <View style={{ padding: spacing(2) }}>
+        <Text style={{ color: colors.subtext }}>Coming soon…</Text>
       </View>
     </SafeAreaView>
   );
 };
 
 const s = StyleSheet.create({
-  container:{ flex:1, padding: spacing(2) },
-  title:{ color:colors.text, fontSize:22, fontWeight:"800", marginBottom: spacing(2) },
-  row:{ backgroundColor:colors.card, borderRadius:14, padding: spacing(2), borderWidth:1, borderColor:colors.border, marginBottom: spacing(1) },
-  key:{ color:colors.text, fontWeight:"700", marginBottom:6 },
-  valueRow:{ flexDirection:"row", alignItems:"center", justifyContent:"space-between" },
-  valTxt:{ color:colors.subtext },
+  iconBtn:{
+    width:36,height:36,borderRadius:10,alignItems:"center",justifyContent:"center",
+    backgroundColor:colors.card,borderWidth:1,borderColor:colors.border
+  },
 });

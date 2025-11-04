@@ -1,34 +1,119 @@
+// src/screens/SearchExerciseModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import { colors, spacing } from "../theme";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { loadCustomExercises, setLastAddedExerciseTemp } from "../storage";
-import type { Exercise } from "../types";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { DEFAULT_EXERCISES, sortByAlpha, sortByGroup, type SortMode } from "../constants/exercises";
+import { supabase } from "../lib/supabase";
+import { setLastAddedExerciseTemp } from "../storage/lastAdded";
+
+type Exercise = {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  isCustom?: boolean;
+};
+
+type Row =
+  | { type: "header"; key: string; title: string }
+  | { type: "item"; key: string; ex: Exercise };
+
+type SortMode = "group" | "alpha";
 
 export const SearchExerciseModal = () => {
   const nav = useNavigation();
-  const [custom, setCustom] = useState<Exercise[]>([]);
   const [q, setQ] = useState("");
-  const [sortMode, setSortMode] = useState<SortMode>("group"); // domyślnie: Group
+  const [sortMode, setSortMode] = useState<SortMode>("group");
+  const [loading, setLoading] = useState(true);
+  const [all, setAll] = useState<Exercise[]>([]);
+  const [err, setErr] = useState<string | null>(null);
 
+  // fetch only from DB (default + user custom)
   useEffect(() => {
-    (async () => setCustom(await loadCustomExercises()))();
+    (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const [{ data: defs, error: e1 }, { data: cust, error: e2 }] = await Promise.all([
+          supabase.from("default_exercises").select("id,name,muscle_group"),
+          supabase.from("custom_exercises").select("id,name,muscle_group"),
+        ]);
+
+        if (e1) throw e1;
+        if (e2) throw e2;
+
+        const d: Exercise[] =
+          (defs ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group })) ?? [];
+        const c: Exercise[] =
+          (cust ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group, isCustom: true })) ?? [];
+
+        const merged = [...d, ...c].sort((a, b) => a.name.localeCompare(b.name));
+        setAll(merged);
+      } catch (e: any) {
+        console.warn("SearchExerciseModal fetch error:", e?.message || e);
+        setErr("Could not load exercises.");
+        setAll([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const all = useMemo(() => [...DEFAULT_EXERCISES, ...custom], [custom]);
-
-  const results = useMemo(() => {
+  // filter
+  const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
-    const base = t
-      ? all.filter((e) => e.name.toLowerCase().includes(t) || e.muscleGroup.toLowerCase().includes(t))
-      : all.slice();
+    if (!t) return all;
+    return all.filter(
+      (e) =>
+        e.name.toLowerCase().includes(t) ||
+        (e.muscleGroup || "").toLowerCase().includes(t)
+    );
+  }, [q, all]);
 
-    base.sort(sortMode === "group" ? sortByGroup : sortByAlpha);
-    return base;
-  }, [q, all, sortMode]);
+  // rows with headers according to sort mode
+  const rows: Row[] = useMemo(() => {
+    if (!filtered.length) return [];
+    const out: Row[] = [];
+    if (sortMode === "group") {
+      // group by muscleGroup (A..Z)
+      const map = new Map<string, Exercise[]>();
+      for (const ex of filtered) {
+        const g = ex.muscleGroup || "Other";
+        if (!map.has(g)) map.set(g, []);
+        map.get(g)!.push(ex);
+      }
+      const groups = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      for (const [title, list] of groups) {
+        out.push({ type: "header", key: `h_${title}`, title });
+        for (const ex of list) out.push({ type: "item", key: `i_${ex.id}`, ex });
+      }
+    } else {
+      // alpha: by first letter of name
+      const map = new Map<string, Exercise[]>();
+      for (const ex of filtered) {
+        const ch = (ex.name[0] || "#").toUpperCase();
+        const letter = /[A-ZĄĆĘŁŃÓŚŹŻ]/i.test(ch) ? ch : "#";
+        if (!map.has(letter)) map.set(letter, []);
+        map.get(letter)!.push(ex);
+      }
+      const groups = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      for (const [title, list] of groups) {
+        const sorted = list.slice().sort((a, b) => a.name.localeCompare(b.name));
+        out.push({ type: "header", key: `h_${title}`, title });
+        for (const ex of sorted) out.push({ type: "item", key: `i_${ex.id}`, ex });
+      }
+    }
+    return out;
+  }, [filtered, sortMode]);
 
   async function pick(ex: Exercise) {
     await setLastAddedExerciseTemp(ex);
@@ -37,75 +122,134 @@ export const SearchExerciseModal = () => {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={{ padding: spacing(2), gap: spacing(2), flex: 1 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      {/* mini header */}
+      <View style={s.top}>
+        <Text style={s.title}>Search</Text>
+
+        {/* Sort toggle */}
+        <View style={s.toggleWrap}>
+          <TouchableOpacity
+            style={[s.toggleBtn, sortMode === "group" && s.toggleBtnActive]}
+            onPress={() => setSortMode("group")}
+          >
+            <Text style={[s.toggleTxt, sortMode === "group" && s.toggleTxtActive]}>Group</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.toggleBtn, sortMode === "alpha" && s.toggleBtnActive]}
+            onPress={() => setSortMode("alpha")}
+          >
+            <Text style={[s.toggleTxt, sortMode === "alpha" && s.toggleTxtActive]}>A→Z</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* search bar */}
+      <View style={s.searchRow}>
+        <View style={s.searchBox}>
           <Ionicons name="search-outline" size={18} color={colors.subtext} />
           <TextInput
+            style={s.input}
             value={q}
             onChangeText={setQ}
             placeholder="Search exercises or groups…"
             placeholderTextColor={colors.subtext}
-            style={s.input}
           />
         </View>
-
-        {/* Toggle sortowania: Group / A–Z */}
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <TouchableOpacity
-            onPress={() => setSortMode("group")}
-            style={[
-              s.sortBtn,
-              { backgroundColor: sortMode === "group" ? colors.card : "transparent", borderColor: colors.border },
-            ]}
-          >
-            <Text style={{ color: colors.text }}>Group</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setSortMode("alpha")}
-            style={[
-              s.sortBtn,
-              { backgroundColor: sortMode === "alpha" ? colors.card : "transparent", borderColor: colors.border },
-            ]}
-          >
-            <Text style={{ color: colors.text }}>A–Z</Text>
-          </TouchableOpacity>
-        </View>
-
-        <FlatList
-          data={results}
-          keyExtractor={(it) => it.id}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={s.row} onPress={() => pick(item)}>
-              <View>
-                <Text style={s.name}>{item.name}</Text>
-                <Text style={s.sub}>{item.muscleGroup}</Text>
-              </View>
-              {item.isCustom ? <Text style={s.badge}>CUSTOM</Text> : null}
-            </TouchableOpacity>
-          )}
-          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-        />
       </View>
+
+      {/* body */}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator />
+        </View>
+      ) : err ? (
+        <View style={s.emptyWrap}>
+          <Text style={s.emptyText}>{err}</Text>
+        </View>
+      ) : rows.length === 0 ? (
+        <View style={s.emptyWrap}>
+          <Text style={s.emptyText}>No matches</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={rows}
+          keyExtractor={(row) => row.key}
+          renderItem={({ item }) =>
+            item.type === "header" ? (
+              <View style={s.headerRow}>
+                <Text style={s.headerTxt}>{item.title}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={s.row} onPress={() => pick(item.ex)}>
+                <View>
+                  <Text style={s.name}>{item.ex.name}</Text>
+                  <Text style={s.sub}>{item.ex.muscleGroup}</Text>
+                </View>
+                {item.ex.isCustom ? <Text style={s.badge}>CUSTOM</Text> : null}
+              </TouchableOpacity>
+            )
+          }
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+          contentContainerStyle={{ padding: spacing(2), paddingBottom: spacing(6) }}
+        />
+      )}
     </SafeAreaView>
   );
 };
 
 const s = StyleSheet.create({
-  input: {
-    flex: 1,
+  top: {
+    paddingHorizontal: spacing(2),
+    paddingTop: spacing(2),
+    paddingBottom: spacing(1),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  title: { color: colors.text, fontSize: 18, fontWeight: "800" },
+
+  toggleWrap: {
+    flexDirection: "row",
     backgroundColor: colors.card,
-    color: colors.text,
     borderRadius: 12,
-    padding: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: "hidden",
   },
-  sortBtn: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: 6,
+  toggleBtn: {
+    paddingVertical: 8,
     paddingHorizontal: 12,
   },
+  toggleBtnActive: {
+    backgroundColor: colors.accent,
+  },
+  toggleTxt: { color: colors.text, fontSize: 12, fontWeight: "600" },
+  toggleTxtActive: { color: "#0E0E10" },
+
+  searchRow: {
+    paddingHorizontal: spacing(2),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: spacing(1),
+  },
+  searchBox: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  input: { flex: 1, color: colors.text },
+
+  headerRow: { marginTop: spacing(2), marginBottom: 6 },
+  headerTxt: { color: colors.subtext, fontWeight: "700" },
+
   row: {
     backgroundColor: colors.card,
     borderRadius: 12,
@@ -119,4 +263,14 @@ const s = StyleSheet.create({
   name: { color: colors.text, fontWeight: "700" },
   sub: { color: colors.subtext, marginTop: 2 },
   badge: { color: colors.subtext, fontSize: 11 },
+
+  emptyWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing(4),
+  },
+  emptyText: { color: colors.subtext, textAlign: "center" },
 });
+
+export default SearchExerciseModal;
