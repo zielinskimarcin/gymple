@@ -1,3 +1,4 @@
+// src/navigation/AppNavigator.tsx
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { RootTabs } from "./RootTabs";
@@ -6,8 +7,8 @@ import { AddExerciseModal } from "../screens/AddExerciseModal";
 import { SearchExerciseModal } from "../screens/SearchExerciseModal";
 import { EditCustomExerciseModal } from "../screens/EditCustomExerciseModal";
 import { TemplateEditor } from "../screens/TemplateEditor";
-import { SettingsScreen } from "../screens/SettingsScreen";
-import { AccountScreen } from "../screens/AccountScreen";
+import { AccountScreen } from "../screens/AccountScreen";   // <-- PROFIL
+import { SettingsScreen } from "../screens/SettingsScreen"; // <-- USTAWIENIA
 
 export type RootStackParamList = {
   Tabs: undefined;
@@ -16,8 +17,8 @@ export type RootStackParamList = {
   SearchExercise: undefined;
   EditCustomExercise: { id: string };
   TemplateEditor: { id?: string };
-  Settings: undefined;
-  Account: undefined;
+  Profile: undefined;    // <-- DODANE
+  Settings: undefined;   // <-- DODANE
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -30,8 +31,9 @@ export const AppNavigator = () => (
     <Stack.Screen name="SearchExercise" component={SearchExerciseModal} options={{ presentation: "modal" }} />
     <Stack.Screen name="EditCustomExercise" component={EditCustomExerciseModal} options={{ presentation: "modal" }} />
     <Stack.Screen name="TemplateEditor" component={TemplateEditor} options={{ presentation: "modal" }} />
-    {/* NEW */}
+
+    {/* Nowe ekrany jako modale */}
+    <Stack.Screen name="Profile" component={AccountScreen} options={{ presentation: "modal" }} />
     <Stack.Screen name="Settings" component={SettingsScreen} options={{ presentation: "modal" }} />
-    <Stack.Screen name="Account" component={AccountScreen} options={{ presentation: "modal" }} />
   </Stack.Navigator>
 );
