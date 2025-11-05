@@ -6,7 +6,7 @@ import { Platform } from "react-native";
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Fallback na web (SecureStore nie działa w przeglądarce)
+// Fallback on web (SecureStore doesn’t work in browser)
 const WebStorageAdapter = {
   getItem: async (key: string) => {
     try { return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null; }
@@ -42,10 +42,12 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     storage,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // IMPORTANT for OAuth:
+    flowType: "pkce",
+    detectSessionInUrl: true,   // <- was false
   },
 });
 
-// (pomoc w debugowaniu — możesz usunąć później)
+// debug logs
 console.log("[supabase] url:", SUPABASE_URL);
 console.log("[supabase] platform:", Platform.OS);

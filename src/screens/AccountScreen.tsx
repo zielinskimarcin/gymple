@@ -23,6 +23,7 @@ type ProfileRow = {
   id: string;
   display_name: string | null;
   avatar_color: string | null;
+  workouts_per_week: number | null;
   created_at?: string;
 };
 
@@ -39,7 +40,7 @@ const COLOR_CHOICES = [
 
 export const AccountScreen = () => {
   const nav = useNavigation();
-  const { session, signOut } = useAuth();
+  const { signOut } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -47,13 +48,13 @@ export const AccountScreen = () => {
   const [email, setEmail] = useState("");
   const [name, setName] = useState<string>("");
   const [color, setColor] = useState<string>("#ff6b6b");
+  const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
 
   const [editName, setEditName] = useState(false);
-  const [editEmail, setEditEmail] = useState(false);
   const [editPwd, setEditPwd] = useState(false);
+  const [weeklyExpanded, setWeeklyExpanded] = useState(false);
 
   const [tmpName, setTmpName] = useState("");
-  const [tmpEmail, setTmpEmail] = useState("");
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
 
@@ -65,54 +66,57 @@ export const AccountScreen = () => {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const { data: sess } = await supabase.auth.getSession();
-      const user = sess.session?.user || null;
-      setEmail(user?.email || "");
+      try {
+        // sesja
+        const { data: sess } = await supabase.auth.getSession();
+        const user = sess.session?.user || null;
+        setEmail(user?.email || "");
 
-      const { data: prof, error } = await supabase
-        .from("profiles")
-        .select("id, display_name, avatar_color")
-        .eq("id", user?.id || "")
-        .maybeSingle();
+        // profil
+        if (user?.id) {
+          const { data: prof, error } = await supabase
+            .from("profiles")
+            .select("id, display_name, avatar_color, workouts_per_week")
+            .eq("id", user.id)
+            .maybeSingle<ProfileRow>();
 
-      if (!error && prof) {
-        setName(prof.display_name || "");
-        setColor(prof.avatar_color || "#ff6b6b");
+          if (!error && prof) {
+            setName(prof.display_name || "");
+            setColor(prof.avatar_color || "#ff6b6b");
+            setWeeklyGoal(
+              typeof prof.workouts_per_week === "number" && prof.workouts_per_week > 0
+                ? prof.workouts_per_week
+                : 3
+            );
+          }
+        }
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     })();
   }, []);
 
   async function saveName() {
     setBusy(true);
-    const newName = tmpName.trim();
-    const { data: usr } = await supabase.auth.getUser();
-    const { error } = await supabase
-      .from("profiles")
-      .update({ display_name: newName })
-      .eq("id", usr.user?.id || "");
-    setBusy(false);
-    if (error) Alert.alert("Error", error.message);
-    else {
+    try {
+      const { data: usr } = await supabase.auth.getUser();
+      const userId = usr.user?.id;
+      if (!userId) {
+        Alert.alert("Error", "You must be signed in.");
+        return;
+      }
+      const newName = tmpName.trim();
+      const { error } = await supabase
+        .from("profiles")
+        .upsert({ id: userId, display_name: newName }, { onConflict: "id" });
+      if (error) throw error;
+
       setName(newName);
       setEditName(false);
-    }
-  }
-
-  async function saveEmail() {
-    setBusy(true);
-    const newEmail = tmpEmail.trim();
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
-    setBusy(false);
-    if (error) {
-      Alert.alert("Error", error.message);
-    } else {
-      setEmail(newEmail);
-      setEditEmail(false);
-      Alert.alert(
-        "Email updated",
-        "If email confirmation is enabled, please check your inbox."
-      );
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not save name.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -126,45 +130,63 @@ export const AccountScreen = () => {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: pwd1 });
-    setBusy(false);
-    if (error) Alert.alert("Error", error.message);
-    else {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: pwd1 });
+      if (error) throw error;
       setEditPwd(false);
       setPwd1("");
       setPwd2("");
       Alert.alert("Success", "Password has been changed.");
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not change password.");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function saveColor(newColor: string) {
-    setColor(newColor);
-    const { data: usr } = await supabase.auth.getUser();
-    await supabase.from("profiles").update({ avatar_color: newColor }).eq("id", usr.user?.id || "");
+    setBusy(true);
+    try {
+      const { data: usr } = await supabase.auth.getUser();
+      const userId = usr.user?.id;
+      if (!userId) {
+        Alert.alert("Error", "You must be signed in.");
+        return;
+      }
+      const { error } = await supabase
+        .from("profiles")
+        .upsert({ id: userId, avatar_color: newColor }, { onConflict: "id" });
+      if (error) throw error;
+
+      setColor(newColor);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not save color.");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function onDeleteAccount() {
-    Alert.alert(
-      "Delete account",
-      "This action is irreversible. Are you sure you want to delete your account and all data (exercises, workouts, templates)?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setBusy(true);
-            const { error } = await supabase.rpc("delete_current_user");
-            setBusy(false);
-            if (error) {
-              Alert.alert("Error", error.message);
-            } else {
-              await signOut();
-            }
-          },
-        },
-      ]
-    );
+  async function saveWorkoutsPerWeek(n: number) {
+    setBusy(true);
+    try {
+      const { data: usr } = await supabase.auth.getUser();
+      const userId = usr.user?.id;
+      if (!userId) {
+        Alert.alert("Error", "You must be signed in.");
+        return;
+      }
+      const clamped = Math.max(1, Math.min(14, Math.floor(n)));
+      const { error } = await supabase
+        .from("profiles")
+        .upsert({ id: userId, workouts_per_week: clamped }, { onConflict: "id" });
+      if (error) throw error;
+
+      setWeeklyGoal(clamped);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not save weekly goal.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loading) {
@@ -197,9 +219,6 @@ export const AccountScreen = () => {
           <View style={{ alignItems: "center", marginTop: spacing(1) }}>
             <View style={[s.avatar, { borderColor: color, backgroundColor: "#121418" }]}>
               <Text style={s.avatarTxt}>{initial}</Text>
-              <TouchableOpacity onPress={() => {}} activeOpacity={0.8} style={s.camBadge}>
-                <Ionicons name="camera" size={14} color="#0E0E10" />
-              </TouchableOpacity>
             </View>
             <Text style={s.nameMain}>{name || "User"}</Text>
             <Text style={s.emailMain}>{email}</Text>
@@ -222,7 +241,7 @@ export const AccountScreen = () => {
             </View>
           </View>
 
-          {/* Personal data */}
+          {/* Personal info */}
           <View style={s.card}>
             <Text style={s.cardTitle}>Personal info</Text>
 
@@ -255,42 +274,60 @@ export const AccountScreen = () => {
               )}
             </View>
 
-            {/* Email */}
+            {/* Email — read-only */}
             <View style={s.row}>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>Email</Text>
-                {!editEmail ? (
-                  <Text style={s.rowValue}>{email || "—"}</Text>
-                ) : (
-                  <TextInput
-                    value={tmpEmail}
-                    onChangeText={setTmpEmail}
-                    placeholder="email@example.com"
-                    placeholderTextColor={colors.subtext}
-                    style={s.input}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                )}
+                <Text style={s.rowValue}>{email || "—"}</Text>
               </View>
-              {!editEmail ? (
-                <TouchableOpacity onPress={() => { setTmpEmail(email); setEditEmail(true); }}>
-                  <Text style={s.editLink}>Edit</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={s.editBtns}>
-                  <TouchableOpacity onPress={() => setEditEmail(false)}><Text style={s.cancelLink}>Cancel</Text></TouchableOpacity>
-                  <TouchableOpacity onPress={saveEmail} disabled={busy}><Text style={s.saveLink}>Save</Text></TouchableOpacity>
-                </View>
-              )}
             </View>
+          </View>
+
+          {/* Weekly goal (collapsible) */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>Training</Text>
+
+            <TouchableOpacity
+              style={s.row}
+              activeOpacity={0.8}
+              onPress={() => setWeeklyExpanded((v) => !v)}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.rowLabel}>Weekly goal</Text>
+                <Text style={s.rowValue}>
+                  {weeklyGoal} {weeklyGoal === 1 ? "workout" : "workouts"} / week
+                </Text>
+              </View>
+              <Ionicons
+                name={weeklyExpanded ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={colors.subtext}
+              />
+            </TouchableOpacity>
+
+            {weeklyExpanded && (
+              <View style={s.weeklyWrap}>
+                <TouchableOpacity
+                  onPress={() => saveWorkoutsPerWeek(Math.max(1, weeklyGoal - 1))}
+                  style={s.counterBtn}
+                >
+                  <Ionicons name="remove" size={18} color={colors.text} />
+                </TouchableOpacity>
+                <Text style={s.weeklyValue}>{weeklyGoal}</Text>
+                <TouchableOpacity
+                  onPress={() => saveWorkoutsPerWeek(Math.min(14, weeklyGoal + 1))}
+                  style={s.counterBtn}
+                >
+                  <Ionicons name="add" size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
 
           {/* Security */}
           <View style={s.card}>
             <Text style={s.cardTitle}>Security</Text>
 
-            {/* Password */}
             <View style={s.row}>
               <View style={{ flex: 1 }}>
                 <Text style={s.rowLabel}>Change password</Text>
@@ -340,10 +377,6 @@ export const AccountScreen = () => {
               <Ionicons name="log-out-outline" size={16} color="#0E0E10" />
               <Text style={s.logoutTxt}>Log out</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={{ alignSelf: "center", marginTop: 10 }} onPress={onDeleteAccount}>
-              <Text style={{ color: "#ff6b6b", fontWeight: "700" }}>Delete account</Text>
-            </TouchableOpacity>
           </View>
         </ScrollView>
 
@@ -380,20 +413,9 @@ const s = StyleSheet.create({
     borderWidth: 3,
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
   avatarTxt: { color: "#fff", fontWeight: "800", fontSize: 40, letterSpacing: 1 },
-  camBadge: {
-    position: "absolute",
-    right: 10,
-    bottom: 12,
-    backgroundColor: colors.accent,
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+
   nameMain: { color: colors.text, fontSize: 20, fontWeight: "700", marginTop: 12 },
   emailMain: { color: colors.subtext, marginTop: 4 },
 
@@ -437,6 +459,24 @@ const s = StyleSheet.create({
   cancelLink: { color: colors.subtext },
   saveLink: { color: colors.accent, fontWeight: "800" },
 
+  // weekly goal
+  weeklyWrap: {
+    marginTop: 8,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  counterBtn: {
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  weeklyValue: { color: colors.text, fontSize: 24, fontWeight: "800", minWidth: 28, textAlign: "center" },
+
+  // logout
   logoutBtn: {
     backgroundColor: colors.accent,
     borderRadius: 14,

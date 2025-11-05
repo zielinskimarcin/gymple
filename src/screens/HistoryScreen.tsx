@@ -1,25 +1,61 @@
 // src/screens/HistoryScreen.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from "react-native";
 import { colors, spacing } from "../theme";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
 
 type DbWorkout = {
   id: string;
   name: string;
-  started_at: string;   // ISO string
-  duration_sec: number; // int
+  started_at: string;
+  duration_sec: number;
 };
+
+// generator przyjemnego koloru, jeśli brak w DB
+function autoColorFromString(s: string) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
 
 export const HistoryScreen = () => {
   const [list, setList] = useState<DbWorkout[]>([]);
   const [loading, setLoading] = useState(true);
   const focused = useIsFocused();
   const nav = useNavigation();
+  const { session } = useAuth();
+  const userId = session?.user?.id ?? "";
+  const userEmail = session?.user?.email ?? "";
 
+  // profil mini avatar (inicjał + kolor)
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [avatarColor, setAvatarColor] = useState<string | null>(null);
+
+  // pobierz dane profilu
+  const loadProfile = useCallback(async () => {
+    if (!userId) { setDisplayName(null); setAvatarColor(null); return; }
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("display_name, avatar_color")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (error) {
+      setDisplayName(null);
+      setAvatarColor(null);
+      return;
+    }
+    setDisplayName(data?.display_name ?? null);
+    setAvatarColor((data as any)?.avatar_color ?? null);
+  }, [userId]);
+
+  // pobierz historię workoutów
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -38,6 +74,8 @@ export const HistoryScreen = () => {
     })();
   }, [focused]);
 
+  useEffect(() => { loadProfile(); }, [focused, loadProfile]);
+
   function fmt(sec?: number) {
     if (sec === undefined || sec === null) return "";
     const m = Math.floor(sec / 60);
@@ -45,13 +83,16 @@ export const HistoryScreen = () => {
     return `${m}m ${s}s`;
   }
 
+  const initial = (displayName || userEmail || "?").trim().charAt(0).toUpperCase() || "?";
+  const avatarBg = avatarColor || autoColorFromString(displayName || userEmail || "user");
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={styles.container}>
-        {/* Top bar spójny z Train: tytuł po lewej, ikonki po prawej */}
+        {/* Top bar: title left, icons right */}
         <View style={styles.topBar}>
           <Text style={styles.title}>History</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={styles.iconsWrap}>
             <TouchableOpacity
               onPress={() => nav.navigate("Settings" as never)}
               style={styles.topIconBtn}
@@ -59,12 +100,16 @@ export const HistoryScreen = () => {
             >
               <Ionicons name="settings-outline" size={18} color={colors.text} />
             </TouchableOpacity>
+
+            {/* Avatar button */}
             <TouchableOpacity
               onPress={() => nav.navigate("Profile" as never)}
-              style={styles.topIconBtn}
+              style={styles.avatarBtn}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="person-circle-outline" size={20} color={colors.text} />
+              <View style={[styles.avatarCircle, { backgroundColor: avatarBg }]}>
+                <Text style={styles.avatarInitial}>{initial}</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
@@ -110,13 +155,16 @@ export const HistoryScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: spacing(2) },
 
-  // top bar jak w TrainScreen
   topBar: {
     paddingVertical: spacing(1.2),
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+  title: { color: colors.text, fontSize: 26, fontWeight: "800" },
+
+  iconsWrap: { flexDirection: "row", alignItems: "center", gap: 8 },
+
   topIconBtn: {
     padding: 8,
     borderRadius: 10,
@@ -125,7 +173,26 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
 
-  title: { color: colors.text, fontSize: 26, fontWeight: "800" },
+  // Avatar button (mini profile icon)
+  avatarBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 2,
+  },
+  avatarCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitial: { color: "#fff", fontWeight: "800", fontSize: 13, includeFontPadding: false },
 
   row: {
     backgroundColor: colors.card,
@@ -137,7 +204,6 @@ const styles = StyleSheet.create({
   name: { color: colors.text, fontSize: 16, fontWeight: "600" },
   sub: { color: colors.subtext, marginTop: 2 },
 
-  // empty state
   emptyWrap: {
     alignItems: "center",
     justifyContent: "center",

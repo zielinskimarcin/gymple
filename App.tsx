@@ -1,10 +1,15 @@
-import React from "react";
+// App.tsx
+import React, { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DarkTheme, Theme } from "@react-navigation/native";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { colors } from "./src/theme";
 import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
 import { AuthStack } from "./src/auth/AuthStack";
+
+import { OnboardingNavigator } from "./src/onboarding/OnboardingNavigator";
+import { isOnboardingDone } from "./src/storage/onboarding";
+import { onboardingEvents } from "./src/storage/onboarding";
 
 const appTheme: Theme = {
   ...DarkTheme,
@@ -21,33 +26,30 @@ const appTheme: Theme = {
 
 function Root() {
   const { session, loading } = useAuth();
+  const [onbDone, setOnbDone] = useState<boolean | null>(null);
 
-  // (Optional) simple splash while checking session
-  if (loading) {
-    return (
-      <>
-        <StatusBar style="light" />
-      </>
-    );
+  useEffect(() => {
+    (async () => setOnbDone(await isOnboardingDone()))();
+    const handler = (done: boolean) => setOnbDone(done);
+    onboardingEvents.addListener("doneChanged", handler);
+    return () => onboardingEvents.removeListener("doneChanged", handler);
+  }, []);
+
+  if (loading || onbDone === null) {
+    return <StatusBar style="light" />;
   }
 
-  if (!session) {
-    // Logged out → show auth flow (SignIn/SignUp)
-    return (
-      <>
-        <StatusBar style="light" />
-        <NavigationContainer theme={appTheme}>
-          <AuthStack />
-        </NavigationContainer>
-      </>
-    );
-  }
-
-  // Logged in → show main app
   return (
     <NavigationContainer theme={appTheme}>
       <StatusBar style="light" />
-      <AppNavigator />
+      {!onbDone ? (
+        <OnboardingNavigator />
+      ) : !session ? (
+        // ⬇️ po onboardingu od razu SignUp
+        <AuthStack initialRouteName="SignUp" />
+      ) : (
+        <AppNavigator />
+      )}
     </NavigationContainer>
   );
 }

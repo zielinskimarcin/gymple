@@ -1,8 +1,8 @@
 // src/screens/TrainScreen.tsx
-import React, { useEffect, useMemo, useRef, useState, memo } from "react";
+import React, { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  LayoutAnimation, UIManager, Platform, TextInput, ScrollView
+  LayoutAnimation, UIManager, Platform, TextInput, ScrollView, Animated
 } from "react-native";
 import { colors, spacing, shadow } from "../theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +19,9 @@ import { TEMPLATE_ICON_MAP } from "../constants/templateIcons";
 import { DEFAULT_TEMPLATES } from "../constants/defaultTemplates";
 import { getSelectedTemplateId, setSelectedTemplateId, loadTemplates } from "../storage/templates";
 import { fetchCustomExercises } from "../storage/customExercises";
+import { supabase } from "../lib/supabase";
+import { useAuth } from "../auth/AuthProvider";
+import { LinearGradient } from "expo-linear-gradient";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -28,12 +31,30 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type SetRowVM = { id: string; weight?: number; reps?: number; timeMin?: number; distance?: number };
 type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
+type DbWorkout = {
+  id: string;
+  name: string;
+  started_at: string;
+  duration_sec: number;
+  payload?: { exercises?: { id: string; sets?: any[] }[] };
+};
+
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
+
+/* helpers */
+function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
+function ordinal(n: number) { const s=["th","st","nd","rd"],v=n%100; return n + (s[(v-20)%10] || s[v] || s[0]); }
+function hoursAgo(iso: string) { const h=Math.floor((Date.now()-new Date(iso).getTime())/36e5); return h<24?`${h}h ago`:`${Math.floor(h/24)} days ago`; }
+function startOfWeek(d=new Date()){const day=d.getDay();const diff=(day===0?-6:1)-day;const res=new Date(d);res.setDate(d.getDate()+diff);res.setHours(0,0,0,0);return res;}
+function autoColorFromString(s: string){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;const hue=Math.abs(h)%360;return `hsl(${hue},55%,45%)`;}
 
 export const TrainScreen = () => {
   const nav = useNavigation<Nav>();
   const focused = useIsFocused();
+  const { session } = useAuth();
+  const userId = session?.user?.id ?? "";
+  const userEmail = session?.user?.email ?? "";
 
   const [active, setActive] = useState(false);
   const [name, setName] = useState("Workout");
@@ -45,93 +66,101 @@ export const TrainScreen = () => {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
 
-  // custom exercises from DB (for featured chips and mapping)
+  // custom exercises
   const [customDb, setCustomDb] = useState<Exercise[]>([]);
-
-  // ad-hoc featured (dodane w trakcie tej sesji)
   const [sessionFeaturedIds, setSessionFeaturedIds] = useState<Set<string>>(new Set());
 
-  // timer
+  // profile avatar
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [avatarColor, setAvatarColor] = useState<string | null>(null);
+
+  // last workout
+  const [lastWorkout, setLastWorkout] = useState<DbWorkout | null>(null);
+  const [thisWeekCount, setThisWeekCount] = useState<number>(0);
+
+  /* timer */
   useEffect(() => {
     let t: NodeJS.Timer | null = null;
     if (active) {
       if (!startRef.current) startRef.current = Date.now() - elapsed;
       t = setInterval(() => startRef.current && setElapsed(Date.now() - startRef.current!), 1000);
-    } else {
-      startRef.current = null; setElapsed(0);
-    }
+    } else { startRef.current = null; setElapsed(0); }
     return () => t && clearInterval(t);
   }, [active]);
 
-  // load templates, selected id, custom DB when focused
+  /* load data on focus */
   useEffect(() => {
     (async () => {
       const userTpls = await loadTemplates();
       setTemplates([...DEFAULT_TEMPLATES, ...userTpls]);
-      const sel = await getSelectedTemplateId();
-      setSelectedTplId(sel);
-
-      const cx = await fetchCustomExercises();
-      setCustomDb(cx);
+      const sel = await getSelectedTemplateId(); setSelectedTplId(sel);
+      const cx = await fetchCustomExercises(); setCustomDb(cx);
+      await Promise.all([loadProfile(), loadLastAndWeek()]);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused]);
 
-  // consume lastAdded ALWAYS on focus return (so editor won't auto-add to template)
-  useFocusEffect(
-    React.useCallback(() => {
-      let alive = true;
-      (async () => {
-        const just = await popLastAddedExerciseTemp(); // konsumujemy „last added” niezależnie od active
-        if (!alive || !just) return;
+  const loadProfile = useCallback(async () => {
+    if (!userId) { setDisplayName(null); setAvatarColor(null); return; }
+    const { data, error } = await supabase.from("profiles")
+      .select("display_name, avatar_color").eq("id", userId).maybeSingle();
+    if (error){ setDisplayName(null); setAvatarColor(null); return; }
+    setDisplayName(data?.display_name ?? null);
+    setAvatarColor((data as any)?.avatar_color ?? null);
+  }, [userId]);
 
-        // upewnij się, że mamy to ćwiczenie w mapie (allById) natychmiast
-        setCustomDb((prev) => [just, ...prev.filter((p) => p.id !== just.id)]);
+  const loadLastAndWeek = useCallback(async () => {
+    const { data: last } = await supabase
+      .from("workouts")
+      .select("id,name,started_at,duration_sec,payload")
+      .order("started_at", { ascending: false }).limit(1);
+    setLastWorkout(last?.[0] ?? null);
 
-        if (active) {
-          // w trakcie treningu: dodajemy je od razu do listy (expanded)
-          setExList((prev) => prev.find((p) => p.id === just.id) ? prev : [...prev, { ...just, sets: [], expanded: true }]);
-          // oraz zaznaczamy jako sesyjny chip (jeśli później usuniesz z listy, pojawi się na dole)
-          setSessionFeaturedIds((prev) => {
-            const next = new Set(prev);
-            next.add(just.id);
-            return next;
-          });
-          LayoutAnimation.configureNext(LayoutAnimation.create(120, "easeInEaseOut", "opacity"));
-        } else {
-          // nieaktywny trening – po prostu konsumujemy, bez wpływu na template
-        }
-      })();
-      return () => { alive = false; };
-    }, [active])
-  );
+    const since = startOfWeek();
+    const { count } = await supabase
+      .from("workouts").select("id", { count: "exact", head: true })
+      .gte("started_at", since.toISOString());
+    setThisWeekCount(count || 0);
+  }, []);
 
-  // flags from Summary
+  /* consume lastAdded */
+  useFocusEffect(React.useCallback(() => {
+    let alive = true;
+    (async () => {
+      const just = await popLastAddedExerciseTemp();
+      if (!alive || !just) return;
+      setCustomDb((prev) => [just, ...prev.filter((p) => p.id !== just.id)]);
+      if (active) {
+        setExList((prev) => prev.find((p) => p.id === just.id) ? prev : [...prev, { ...just, sets: [], expanded: true }]);
+        setSessionFeaturedIds((prev) => { const next = new Set(prev); next.add(just.id); return next; });
+        LayoutAnimation.configureNext(LayoutAnimation.create(140, "easeInEaseOut", "opacity"));
+      }
+    })();
+    return () => { alive = false; };
+  }, [active]));
+
+  /* flags from Summary */
   useEffect(() => { (async () => {
-    const ok = await popConfirmDone(); if (ok) return clearState();
+    const ok = await popConfirmDone(); if (ok) { clearState(); await loadLastAndWeek(); return; }
     const cancel = await popCancelDone(); if (cancel) clearState();
-  })(); }, [focused]);
+  })(); }, [focused, loadLastAndWeek]);
 
   function clearState(){
-    setActive(false);
-    setExList([]);
-    setName("Workout");
-    startRef.current=null;
-    setElapsed(0);
-    setSessionFeaturedIds(new Set()); // reset sesyjnych chipów po zakończeniu
+    setActive(false); setExList([]); setName("Workout");
+    startRef.current=null; setElapsed(0); setSessionFeaturedIds(new Set());
   }
 
-  const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"Tap Start to begin",[active,elapsed]);
+  const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"", [active,elapsed]);
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
   const newDefaultSet = (ex:Exercise):SetRowVM => isCardio(ex)? {id:uid(), timeMin:5, distance:0.5}:{id:uid(), weight:20, reps:8};
 
   function addDefault(ex:Exercise){
     setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
-    // ćwiczenie dodane z chipów też zasługuje na status „sesyjny” (po usunięciu pojawi się znowu)
     setSessionFeaturedIds(prev => new Set(prev).add(ex.id));
-    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
+    LayoutAnimation.configureNext(LayoutAnimation.create(140, 'easeInEaseOut', 'opacity'));
   }
   function toggleExpand(id:string){
-    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
+    LayoutAnimation.configureNext(LayoutAnimation.create(140, 'easeInEaseOut', 'opacity'));
     setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e));
   }
   function addSet(id:string){ setExList(p=>p.map(e=>e.id===id?{...e,sets:[...e.sets,newDefaultSet(e)]}:e)); }
@@ -140,9 +169,8 @@ export const TrainScreen = () => {
   }
   function removeSet(exId:string,setId:string){ setExList(p=>p.map(e=> e.id===exId? {...e,sets:e.sets.filter(s=>s.id!==setId)}:e)); }
   function removeExercise(exId:string){
-    LayoutAnimation.configureNext(LayoutAnimation.create(120, 'easeInEaseOut', 'opacity'));
+    LayoutAnimation.configureNext(LayoutAnimation.create(140, 'easeInEaseOut', 'opacity'));
     setExList(p=> p.filter(e=>e.id!==exId));
-    // po usunięciu – upewnij się, że będzie jako chip
     setSessionFeaturedIds(prev => new Set(prev).add(exId));
   }
   function finishPreview(){
@@ -153,13 +181,11 @@ export const TrainScreen = () => {
     }, mode:"preview" });
   }
 
-  // wybrany template
   const selectedTemplate = useMemo(
     () => templates.find(t => t.id === selectedTplId) || null,
     [templates, selectedTplId]
   );
 
-  // mapa wszystkich ćwiczeń (default + custom z DB + ewentualne świeże dodane już dorzucamy do customDb wyżej)
   const allById = useMemo(() => {
     const map = new Map<string, Exercise>();
     for (const e of DEFAULT_EXERCISES) map.set(e.id, e);
@@ -167,43 +193,28 @@ export const TrainScreen = () => {
     return map;
   }, [customDb]);
 
-  // featured z template (obsługuje custom)
   const featuredFromTemplate: Exercise[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    return selectedTemplate.exerciseIds
-      .map(id => allById.get(id))
-      .filter(Boolean) as Exercise[];
+    return selectedTemplate.exerciseIds.map(id => allById.get(id)).filter(Boolean) as Exercise[];
   }, [selectedTemplate, allById]);
 
-  // fallback 4 bazowe
   const fallbackFeatured: Exercise[] = useMemo(() => {
     const byId = new Map(DEFAULT_EXERCISES.map(e => [e.id, e]));
     return FEATURED_DEFAULT_IDS.map(id => byId.get(id)).filter(Boolean) as Exercise[];
   }, []);
 
-  // sesyjne ad-hoc (IDs -> obiekty)
   const sessionFeatured: Exercise[] = useMemo(() => {
     const out: Exercise[] = [];
-    sessionFeaturedIds.forEach((id) => {
-      const ex = allById.get(id);
-      if (ex) out.push(ex);
-    });
+    sessionFeaturedIds.forEach((id) => { const ex = allById.get(id); if (ex) out.push(ex); });
     return out;
   }, [sessionFeaturedIds, allById]);
 
-  // unikaj duplikatów po id
   function uniqById<T extends { id: string }>(arr: T[]): T[] {
-    const seen = new Set<string>();
-    const out: T[] = [];
-    for (const it of arr) {
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      out.push(it);
-    }
+    const seen = new Set<string>(); const out: T[] = [];
+    for (const it of arr) { if (seen.has(it.id)) continue; seen.add(it.id); out.push(it); }
     return out;
   }
 
-  // widoczne chipsy = template/fallback + sesyjne ad-hoc, minus już dodane do listy
   const visibleFeatured = useMemo(() => {
     const base = featuredFromTemplate.length ? featuredFromTemplate : fallbackFeatured;
     const merged = uniqById<Exercise>([...base, ...sessionFeatured]);
@@ -212,47 +223,115 @@ export const TrainScreen = () => {
 
   async function onPickTemplate(t: Template | "create") {
     if (t === "create") { nav.navigate("TemplateEditor" as never); return; }
-    setSelectedTplId(t.id);
-    await setSelectedTemplateId(t.id);
+    setSelectedTplId(t.id); await setSelectedTemplateId(t.id);
   }
 
-  const TemplateCard = memo(function TemplateCard({ t, active }: { t: Template; active: boolean }) {
+  // avatar
+  const initial = (displayName || userEmail || "?").trim().charAt(0).toUpperCase() || "?";
+  const avatarBg = avatarColor || autoColorFromString(displayName || userEmail || "user");
+
+  // last workout stats
+  const lastStats = useMemo(() => {
+    if (!lastWorkout) return null;
+    const ex = lastWorkout.payload?.exercises ?? [];
+    const totalSets = ex.reduce((sum, e) => sum + (e.sets?.length || 0), 0);
+    const exercisesCount = ex.length;
+    return { totalSets, exercisesCount };
+  }, [lastWorkout]);
+
+  function progressMeta(n: number) {
+    if (n <= 0) return { pct: 0.05, colors: ["#3a3f47", "#3a3f47"], text: "No workouts yet" };
+    if (n === 1) return { pct: 0.22, colors: ["#FF6A3C", "#FF5A3C"], text: `${ordinal(n)} workout this week: Good start!` };
+    if (n === 2) return { pct: 0.45, colors: ["#FFB84D", "#FFC34D"], text: `${ordinal(n)} workout this week: Keep it up!` };
+    if (n === 3) return { pct: 0.70, colors: ["#7EDB6A", "#9AD96A"], text: `${ordinal(n)} workout this week: Great pace!` };
+    if (n === 4) return { pct: 0.90, colors: ["#46D964", "#5AD65A"], text: `${ordinal(n)} workout this week: Awesome job!` };
+    if (n === 5) return { pct: 1.00, colors: ["#2FC84A", "#35C84A"], text: `${ordinal(n)} workout this week: You’ve done it!` };
+    return { pct: 1.00, colors: ["#27B83E", "#2BBF3E"], text: `${ordinal(n)} workout this week: Time for a rest day!` };
+  }
+
+  /** Animated progress */
+  const progAnim = useRef(new Animated.Value(0)).current;
+  const meta = progressMeta(thisWeekCount);
+  useEffect(() => {
+    Animated.timing(progAnim, { toValue: meta.pct, duration: 450, useNativeDriver: false })
+      .start();
+  }, [meta.pct]); // animuj gdy zmienia się liczba treningów w tygodniu
+
+  const progWidth = progAnim.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
+
+  function ProgressBar() {
     return (
-      <TouchableOpacity
-        onPress={() => onPickTemplate(t)}
-        onLongPress={() => nav.navigate("TemplateEditor" as never, { id: t.id } as never)}
-        style={[st.tplCard, active && st.tplCardActive]}
-        activeOpacity={0.9}
-      >
-        <View style={st.tplIconWrap}>
-          <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={24} color={active ? "#FFFFFF" : colors.text} />
-        </View>
-        <Text style={[st.tplName, active && { color: "#FFFFFF" }]} numberOfLines={1}>{t.name}</Text>
-      </TouchableOpacity>
+      <View style={st.pbWrap}>
+        <Animated.View style={[st.pbFillWrap, { width: progWidth }]}>
+          <LinearGradient
+            colors={meta.colors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
+      </View>
     );
-  });
+  }
+
+  function LastWorkoutCard() {
+    if (!lastWorkout) {
+      return (
+        <View style={st.lastCard}>
+          <Text style={st.miniLabel}>Welcome</Text>
+          <Text style={st.lastTitleWelcome}>Start Your Journey</Text>
+          <Text style={st.lastSub}>Begin your first workout below</Text>
+          <View style={{ height: spacing(1.5) }} />
+          <ProgressBar />
+          <Text style={st.pbText}>{meta.text}</Text>
+        </View>
+      );
+    }
+    const exC = lastStats?.exercisesCount ?? 0;
+    const setC = lastStats?.totalSets ?? 0;
+
+    return (
+      <View style={st.lastCard}>
+        <View style={st.lastHeaderRow}>
+          <Text style={st.miniLabel}>Last workout</Text>
+          <Text style={st.lastAgo}>{hoursAgo(lastWorkout.started_at)}</Text>
+        </View>
+
+        <Text style={st.lastTitle} numberOfLines={1}>{lastWorkout.name || "Workout"}</Text>
+
+        <View style={st.lastMetaRow}>
+          <Ionicons name="time-outline" size={14} color={colors.subtext} />
+          <Text style={st.lastMeta}>
+            {Math.max(1, Math.floor((lastWorkout.duration_sec || 0) / 60))} min
+          </Text>
+          <Text style={st.lastDot}>•</Text>
+          <Text style={st.lastMeta}>{plural(exC, "exercise", "exercises")}</Text>
+          <Text style={st.lastDot}>•</Text>
+          <Text style={st.lastMeta}>{plural(setC, "set", "sets")}</Text>
+        </View>
+
+        <ProgressBar />
+        <Text style={st.pbText}>{meta.text}</Text>
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={st.safe}>
       <View style={st.container}>
-        {/* Header */}
         {!active ? (
           <View style={st.topBar}>
             <Text style={st.title}>{name}</Text>
             <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
-              <TouchableOpacity
-                onPress={() => nav.navigate("Settings" as never)}
-                style={st.topIconBtn}
-                hitSlop={{ top:8, bottom:8, left:8, right:8 }}
-              >
+              <TouchableOpacity onPress={() => nav.navigate("Settings" as never)} style={st.topIconBtn}
+                hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
                 <Ionicons name="settings-outline" size={18} color={colors.text} />
               </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => nav.navigate("Profile" as never)}
-                style={st.topIconBtn}
-                hitSlop={{ top:8, bottom:8, left:8, right:8 }}
-              >
-                <Ionicons name="person-circle-outline" size={20} color={colors.text} />
+              <TouchableOpacity onPress={() => nav.navigate("Profile" as never)} style={st.avatarBtn}
+                hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
+                <View style={[st.avatarCircle,{backgroundColor:avatarBg}]}>
+                  <Text style={st.avatarInitial}>{(displayName||userEmail||"?").trim().charAt(0).toUpperCase()}</Text>
+                </View>
               </TouchableOpacity>
             </View>
           </View>
@@ -260,7 +339,9 @@ export const TrainScreen = () => {
           <View style={st.headerActive}>
             <View>
               <Text style={st.title}>{name}</Text>
-              <Text style={st.subtitle}>{subtitle}</Text>
+              <Text style={st.subtitleRow}>
+                <Ionicons name="time-outline" size={14} color={colors.subtext} /> <Text style={st.subtitle}>{subtitle}</Text>
+              </Text>
             </View>
             <TouchableOpacity style={[st.pillButton,{backgroundColor:"#2E3136"}]} onPress={clearState}>
               <Ionicons name="close" size={18} color={colors.text}/><Text style={st.pillText}>Cancel</Text>
@@ -270,15 +351,22 @@ export const TrainScreen = () => {
 
         {!active ? (
           <>
-            {/* START dock */}
-            <View style={st.startDock}>
+            {/* motywacyjny napis – trochę większy, ale bez pogrubiania */}
+            <Text style={st.heroLine}>Ready to push your limits?</Text>
+
+            {/* last workout */}
+            <View style={{ marginTop: spacing(2), marginBottom: spacing(2.4) }}>
+              <LastWorkoutCard />
+            </View>
+
+            {/* start CTA – równe marginesy wokół */}
+            <View style={{ marginBottom: spacing(2.6) }}>
               <TouchableOpacity style={st.ctaPrimary} onPress={()=>setActive(true)}>
                 <Text style={st.ctaPrimaryText}>Start workout</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
-              {/* Templates header + Edit */}
               <View style={st.tplHeader}>
                 <Text style={st.sectionTitle}>Templates</Text>
                 {selectedTplId ? (
@@ -288,12 +376,11 @@ export const TrainScreen = () => {
                 ) : null}
               </View>
 
-              {/* GRID */}
+              {/* 2 w rzędzie */}
               <View style={st.tplGrid}>
                 {templates.map((t) => (
-                  <TemplateCard key={t.id} t={t} active={t.id === selectedTplId} />
+                  <TemplateCardComp key={t.id} t={t} active={t.id === selectedTplId} onPick={onPickTemplate} />
                 ))}
-                {/* + create – dashed */}
                 <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
                   <View style={st.tplCreateDash} />
                   <View style={st.tplIconWrap}>
@@ -330,19 +417,13 @@ export const TrainScreen = () => {
 
                           {!isCardio(item) ? (
                             <>
-                              <NumCounter
-                                label="kg"
-                                mode="float"
-                                maxDigits={4}
+                              <NumCounter label="kg" mode="float" maxDigits={4}
                                 value={s.weight ?? 20}
                                 onMinus={() => modSet(item.id,s.id,{weight:Math.max(0,(s.weight??20)-2.5)})}
                                 onPlus={() => modSet(item.id,s.id,{weight:(s.weight??20)+2.5})}
                                 onType={(v)=>modSet(item.id,s.id,{weight:v})}
                               />
-                              <NumCounter
-                                label="reps"
-                                mode="int"
-                                maxDigits={4}
+                              <NumCounter label="reps" mode="int" maxDigits={4}
                                 value={s.reps ?? 8}
                                 onMinus={() => modSet(item.id,s.id,{reps:Math.max(0,(s.reps??8)-1)})}
                                 onPlus={() => modSet(item.id,s.id,{reps:(s.reps??8)+1})}
@@ -351,15 +432,13 @@ export const TrainScreen = () => {
                             </>
                           ) : (
                             <>
-                              <NumCounter
-                                label="km"
+                              <NumCounter label="km"
                                 value={s.distance ?? 0.5}
                                 onMinus={() => modSet(item.id,s.id,{distance:Math.max(0, round1((s.distance??0.5)-0.1))})}
                                 onPlus={() => modSet(item.id,s.id,{distance:round1((s.distance??0.5)+0.1)})}
                                 onType={(v)=>modSet(item.id,s.id,{distance:v})}
                               />
-                              <NumCounter
-                                label="min"
+                              <NumCounter label="min"
                                 value={s.timeMin ?? 5}
                                 onMinus={() => modSet(item.id,s.id,{timeMin:Math.max(0,(s.timeMin??5)-1)})}
                                 onPlus={() => modSet(item.id,s.id,{timeMin:(s.timeMin??5)+1})}
@@ -410,80 +489,37 @@ export const TrainScreen = () => {
   );
 };
 
+function TemplateCardComp({
+  t, active, onPick,
+}: { t: { id: string; name: string; icon: string }; active: boolean; onPick: (tpl: any) => void; }) {
+  return (
+    <TouchableOpacity onPress={() => onPick(t)} onLongPress={() => onPick(t)}
+      style={[st.tplCard, active && st.tplCardActive]} activeOpacity={0.9}>
+      <View style={st.tplIconWrap}>
+        <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={24} color={active ? "#FFFFFF" : colors.text} />
+      </View>
+      <Text style={[st.tplName, active && { color: "#FFFFFF" }]} numberOfLines={1}>{t.name}</Text>
+    </TouchableOpacity>
+  );
+}
+
 function NumCounter({
-  label,
-  value,
-  onMinus,
-  onPlus,
-  onType,
-  mode = "float",
-  maxDigits = 4,
-}: {
-  label: string;
-  value: number;
-  onMinus: () => void;
-  onPlus: () => void;
-  onType: (v: number) => void;
-  mode?: "int" | "float";
-  maxDigits?: number;
-}) {
+  label, value, onMinus, onPlus, onType, mode="float", maxDigits=4,
+}: { label: string; value: number; onMinus: () => void; onPlus: () => void; onType: (v:number)=>void; mode?: "int"|"float"; maxDigits?: number; }) {
   const [text, setText] = React.useState(String(value ?? ""));
-
-  React.useEffect(() => {
-    const asText = text === "" ? "" : String(value ?? "");
-    if (asText !== text) setText(asText);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  function applyLimitAndSet(t: string) {
-    if (t === "") { setText(""); return; }
-    t = t.replace(",", ".");
-
-    if (mode === "int") {
-      t = t.replace(/\D+/g, "");
-    } else {
-      t = t.replace(/[^0-9.]/g, "");
-      const parts = t.split(".");
-      if (parts.length > 2) t = parts[0] + "." + parts.slice(1).join("");
-    }
-
-    const [intPart, fracPart = ""] = t.split(".");
-    const limitedInt = intPart.slice(0, maxDigits);
-    t = mode === "float" ? (fracPart !== "" ? `${limitedInt}.${fracPart}` : limitedInt) : limitedInt;
-
-    setText(t);
+  React.useEffect(()=>{ const as = text===""?"":String(value ?? ""); if (as!==text) setText(as); },[value]); // eslint-disable-line
+  function applyLimitAndSet(t:string){ if(t===""){setText("");return;} t=t.replace(",",".");
+    if(mode==="int"){ t=t.replace(/\D+/g,""); } else { t=t.replace(/[^0-9.]/g,""); const parts=t.split("."); if(parts.length>2) t=parts[0]+"."+parts.slice(1).join(""); }
+    const [intP, frac=""]=t.split("."); const limited=intP.slice(0,maxDigits);
+    t=mode==="float"?(frac!==""?`${limited}.${frac}`:limited):limited; setText(t);
   }
-
-  function commitIfNeeded() {
-    if (text === "") return;
-    const num = Number(text);
-    if (!Number.isNaN(num)) onType(num);
-  }
-
+  function commit(){ if(text==="") return; const num=Number(text); if(!Number.isNaN(num)) onType(num); }
   return (
     <View style={st.counter}>
-      <TouchableOpacity onPress={onMinus} style={st.counterBtn}>
-        <Ionicons name="remove" size={16} color={colors.text} />
-      </TouchableOpacity>
-
-      <TextInput
-        style={st.counterInput}
-        value={text}
-        keyboardType="numeric"
-        inputMode="decimal"
-        onChangeText={applyLimitAndSet}
-        onBlur={() => {
-          if (text === "") { setText("0"); onType(0); return; }
-          commitIfNeeded();
-        }}
-        returnKeyType="done"
-        blurOnSubmit
-      />
-
-      <TouchableOpacity onPress={onPlus} style={st.counterBtn}>
-        <Ionicons name="add" size={16} color={colors.text} />
-      </TouchableOpacity>
-
+      <TouchableOpacity onPress={onMinus} style={st.counterBtn}><Ionicons name="remove" size={16} color={colors.text} /></TouchableOpacity>
+      <TextInput style={st.counterInput} value={text} keyboardType="numeric" inputMode="decimal"
+        onChangeText={applyLimitAndSet} onBlur={()=>{ if(text===""){setText("0"); onType(0); return;} commit(); }} returnKeyType="done" blurOnSubmit />
+      <TouchableOpacity onPress={onPlus} style={st.counterBtn}><Ionicons name="add" size={16} color={colors.text} /></TouchableOpacity>
       <Text style={st.counterLabel} numberOfLines={1}>{label}</Text>
     </View>
   );
@@ -496,44 +532,51 @@ const st = StyleSheet.create({
   safe:{flex:1,backgroundColor:colors.bg},
   container:{flex:1,paddingHorizontal:spacing(2)},
 
-  // Start screen top bar: title left + two icons right (same height as History)
-  topBar:{paddingVertical:spacing(1.2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+  topBar:{paddingVertical:spacing(1.1),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
   topIconBtn:{padding:8,borderRadius:10,backgroundColor:colors.card,borderWidth:1,borderColor:colors.border},
 
-  headerActive:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
-  title:{color:colors.text,fontSize:26,fontWeight:"800"},
-  subtitle:{color:colors.subtext,marginTop:4},
+  avatarBtn:{width:36,height:36,borderRadius:10,backgroundColor:colors.card,borderWidth:1,borderColor:colors.border,alignItems:"center",justifyContent:"center",padding:2},
+  avatarCircle:{width:28,height:28,borderRadius:14,alignItems:"center",justifyContent:"center"},
+  avatarInitial:{color:"#fff",fontWeight:"800",fontSize:13,includeFontPadding:false},
 
-  // START dock – fixed style
-  startDock:{ paddingBottom: spacing(2) },
+  headerActive:{paddingVertical:spacing(1.8),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+  title:{color:colors.text,fontSize:26,fontWeight:"800"},
+  subtitleRow:{flexDirection:"row",alignItems:"center",gap:6,marginTop:4},
+  subtitle:{color:colors.subtext},
+
+  heroLine:{ color: colors.subtext, fontSize: 17, marginTop: spacing(0.5) },
+
+  lastCard:{ backgroundColor:colors.card, borderRadius:18, padding:spacing(2), borderWidth:1, borderColor:colors.border },
+  miniLabel:{ color: colors.subtext, fontWeight: "600", letterSpacing: 0.2 },
+  lastHeaderRow:{flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+  lastAgo:{ color: colors.subtext },
+  lastTitle:{ color: colors.text, fontSize: 18, fontWeight: "700", marginTop: 6 },
+  lastTitleWelcome:{ color: colors.text, fontSize: 18, fontWeight: "700", marginTop: 4 },
+  lastSub:{ color: colors.subtext, marginTop: 4 },
+
+  lastMetaRow:{ flexDirection:"row", alignItems:"center", gap:8, marginTop:8, marginBottom:10 },
+  lastMeta:{ color: colors.subtext },
+  lastDot:{ color: colors.subtext },
+
+  pbWrap:{ height:10, borderRadius:8, backgroundColor:"#24272C", overflow:"hidden" },
+  pbFillWrap:{ height:"100%", borderRadius:8 },
+
+  pbText:{ color: colors.subtext, marginTop:8, fontSize:12 },
+
   ctaPrimary:{ backgroundColor: colors.accent, paddingVertical: spacing(2.4), alignItems:"center", borderRadius:16, ...shadow },
   ctaPrimaryText:{ color:"#FFFFFF", fontSize:18, fontWeight:"800" },
 
-  // Templates
-  tplHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginBottom:spacing(1)},
+  tplHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginBottom:spacing(1.2)},
   sectionTitle:{color:colors.text,fontSize:18,fontWeight:"700"},
   editLink:{color:colors.subtext,textDecorationLine:"underline",fontSize:13},
 
-  tplGrid:{flexDirection:"row",flexWrap:"wrap",gap:14},
-  tplCard:{
-    width:"47%",
-    backgroundColor:colors.card,
-    borderRadius:18,
-    padding:spacing(2.2),
-    borderWidth:1.2,
-    borderColor:colors.border,
-    overflow:"hidden",
-  },
+  tplGrid:{ flexDirection:"row", flexWrap:"wrap", justifyContent:"space-between", rowGap:14, columnGap:14 },
+  tplCard:{ width:"48%", backgroundColor:colors.card, borderRadius:18, padding:spacing(2.2), borderWidth:1.2, borderColor:colors.border, overflow:"hidden", marginBottom:14 },
   tplCardActive:{ borderColor: colors.accent },
   tplIconWrap:{width:50,height:50,borderRadius:14,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:12},
   tplName:{color:colors.text,fontWeight:"800",fontSize:15},
-
-  // „Custom” – dashed background
   tplCreate:{},
-  tplCreateDash:{
-    position:"absolute", inset:0 as any,
-    borderWidth:1.2, borderColor:colors.border, borderStyle:"dashed", borderRadius:18,
-  },
+  tplCreateDash:{ position:"absolute", inset:0 as any, borderWidth:1.2, borderColor:colors.border, borderStyle:"dashed", borderRadius:18 },
 
   bottomDock:{backgroundColor:colors.bg,paddingTop:spacing(2),paddingHorizontal:spacing(2),paddingBottom:spacing(2),borderTopWidth:1,borderTopColor:colors.border},
   quickHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:spacing(1)},
@@ -556,19 +599,9 @@ const st = StyleSheet.create({
   addSetBtn:{flexDirection:"row",gap:6,alignItems:"center",paddingVertical:8},
   addSetTxt:{color:colors.text,fontWeight:"600"},
 
-  // counter capsules
-  counter:{
-    flex:1, minWidth:100, maxWidth:152,
-    flexDirection:"row", alignItems:"center",
-    backgroundColor:colors.muted, borderRadius:10,
-    paddingHorizontal:6, paddingVertical:6, marginRight:6,
-  },
+  counter:{flex:1, minWidth:100, maxWidth:152, flexDirection:"row", alignItems:"center", backgroundColor:colors.muted, borderRadius:10, paddingHorizontal:6, paddingVertical:6, marginRight:6},
   counterBtn:{paddingHorizontal:4,paddingVertical:2},
-  counterInput:{
-    flexGrow:1, minWidth:34, maxWidth:60,
-    color:colors.text, textAlign:"center", fontWeight:"700",
-    paddingVertical:0, paddingHorizontal:2,
-  },
+  counterInput:{flexGrow:1, minWidth:34, maxWidth:60, color:colors.text, textAlign:"center", fontWeight:"700", paddingVertical:0, paddingHorizontal:2},
   counterLabel:{color:colors.subtext, marginLeft:4, fontSize:10, flexShrink:0},
   trashBtn:{marginLeft:8, padding:6},
 });

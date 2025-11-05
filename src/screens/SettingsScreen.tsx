@@ -1,10 +1,15 @@
+// src/screens/SettingsScreen.tsx
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Switch, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Switch, Alert, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing } from "../theme";
 import { fetchPrefs } from "../storage/prefs";
+import { supabase } from "../lib/supabase";
+import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { markOnboardingDone, clearOnbDraft } from "../storage/onboarding";
 
 export const SettingsScreen = () => {
   const nav = useNavigation();
@@ -23,8 +28,80 @@ export const SettingsScreen = () => {
     })();
   }, []);
 
-  function comingSoon(msg = "This setting isn’t active yet.") {
+  function soon(msg = "This feature is coming soon.") {
     Alert.alert("Soon", msg);
+  }
+
+  // 👉 pełny reset lokalu + powrót do onboardingu (bez navigation.reset)
+  async function resetLocalData() {
+    try {
+      // 1) Wyloguj (czyści sesję w SecureStore przez adapter)
+      try { await supabase.auth.signOut(); } catch {}
+
+      // 2) Wyczyść AsyncStorage (jeśli coś trzymasz)
+      try { await AsyncStorage.clear(); } catch {}
+
+      // 3) Usuń znane klucze w SecureStore (dopisz swoje, jeśli masz inne)
+      try { await SecureStore.deleteItemAsync("prefs"); } catch {}
+      try { await SecureStore.deleteItemAsync("last_added_exercise"); } catch {}
+
+      // 4) Usuń draft onboardingu i ustaw flagę na false
+      await clearOnbDraft();
+      await markOnboardingDone(false);
+
+      // ⛔️ NIE robimy nav.reset – Root przełączy widok sam po evencie
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not reset data.");
+    }
+  }
+
+  async function onResetAllData() {
+    Alert.alert(
+      "Reset all data",
+      "You will be signed out, local settings will be cleared and the app will return to onboarding. Cloud data remains.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Reset", style: "destructive", onPress: resetLocalData },
+      ]
+    );
+  }
+
+  // Kasowanie danych w chmurze (Supabase)
+  async function onWipeCloudData() {
+    Alert.alert(
+      "Wipe cloud data",
+      "This will delete your workouts, templates and custom exercises from the cloud. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { data: usr } = await supabase.auth.getUser();
+              const userId = usr.user?.id;
+              if (!userId) { Alert.alert("Error", "You must be logged in."); return; }
+
+              const ops = await Promise.allSettled([
+                supabase.from("workouts").delete().eq("user_id", userId),
+                supabase.from("templates").delete().eq("user_id", userId),
+                supabase.from("custom_exercises").delete().eq("user_id", userId),
+              ]);
+
+              const failed = ops.filter(r => r.status === "rejected" || (r as any)?.value?.error);
+              if (failed.length > 0) {
+                const firstErr = (failed[0] as any)?.reason?.message || (failed[0] as any)?.value?.error?.message;
+                throw new Error(firstErr || "Some items could not be deleted.");
+              }
+
+              Alert.alert("Done", "Cloud data removed.");
+            } catch (e: any) {
+              Alert.alert("Error", e?.message ?? "Failed to wipe cloud data.");
+            }
+          },
+        },
+      ]
+    );
   }
 
   return (
@@ -32,7 +109,7 @@ export const SettingsScreen = () => {
       {/* Top bar */}
       <View style={s.top}>
         <Text style={s.title}>Settings</Text>
-        <TouchableOpacity onPress={() => nav.goBack()} style={s.iconBtn} hitSlop={{ top:8,bottom:8,left:8,right:8 }}>
+        <TouchableOpacity onPress={() => nav.goBack()} style={s.iconBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="close" size={18} color={colors.text} />
         </TouchableOpacity>
       </View>
@@ -40,20 +117,24 @@ export const SettingsScreen = () => {
       <View style={{ padding: spacing(2) }}>
         {/* General */}
         <Section title="General">
-          <Row onPress={() => comingSoon("Language selection UI will land next.")}
-               leftIcon="globe-outline"
-               label="Language"
-               value={lang === "en" ? "English" : "Polski"} />
+          <Row
+            onPress={() => soon("Language selection UI will land next.")}
+            leftIcon="globe-outline"
+            label="Language"
+            value={lang === "en" ? "English" : "Polski"}
+          />
           <SwitchRow
             leftIcon="moon-outline"
             label="Dark Mode"
             value={theme === "dark"}
-            onValueChange={() => comingSoon("Theme switch will toggle app-wide colors.")}
+            onValueChange={() => soon("Theme switch will toggle app-wide colors.")}
           />
-          <Row onPress={() => comingSoon("Choose between kg and lb.")}
-               leftIcon="scale-outline"
-               label="Weight unit"
-               value={units} />
+          <Row
+            onPress={() => soon("Choose between kg and lb.")}
+            leftIcon="scale-outline"
+            label="Weight unit"
+            value={units}
+          />
         </Section>
 
         {/* Account */}
@@ -63,44 +144,32 @@ export const SettingsScreen = () => {
             leftIcon="person-outline"
             label="Profile"
             value="Edit"
-            valueTint={colors.accent}
           />
           <Row
-            onPress={() => comingSoon("Password change will open a secure flow.")}
-            leftIcon="lock-closed-outline"
-            label="Change password"
-          />
-        </Section>
-
-        {/* Data & privacy */}
-        <Section title="Data & Privacy">
-          <Row
-            onPress={() => comingSoon("Export to CSV/JSON will appear here.")}
-            leftIcon="download-outline"
-            label="Export my data"
-          />
-          <Row
-            onPress={() => Alert.alert(
-              "Reset local settings",
-              "This will clear local caches and preferences on this device (not your workouts). Continue?",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Reset", style: "destructive", onPress: () => comingSoon("Local reset will be wired next.") },
-              ]
-            )}
-            leftIcon="refresh-outline"
-            label="Reset local settings"
-          />
-        </Section>
-
-        {/* Danger zone */}
-        <Section title="Danger zone">
-          <Row
-            onPress={() => comingSoon("Account deletion flow will live here (with confirmation).")}
+            onPress={() => {
+              Alert.alert("Delete account", "You can delete your account from Profile screen.");
+            }}
             leftIcon="trash-outline"
             label="Delete account"
-            value="Coming soon"
-            valueTint="#ff6b6b"
+          />
+        </Section>
+
+        {/* Data & Privacy */}
+        <Section title="Data & Privacy">
+          <Row
+            onPress={() => Alert.alert("Export", "Export to CSV/JSON will appear here soon.")}
+            leftIcon="server-outline"
+            label="Export data"
+          />
+          <Row
+            onPress={onWipeCloudData}
+            leftIcon="alert-circle-outline"
+            label="Wipe cloud data"
+          />
+          <Row
+            onPress={onResetAllData}
+            leftIcon="reload-circle-outline"
+            label="Reset all data"
           />
         </Section>
 
@@ -123,16 +192,15 @@ const Row: React.FC<{
   leftIcon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
-  valueTint?: string;
   onPress?: () => void;
-}> = ({ leftIcon, label, value, valueTint, onPress }) => (
+}> = ({ leftIcon, label, value, onPress }) => (
   <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={s.row}>
     <View style={s.rowLeft}>
       <Ionicons name={leftIcon} size={18} color={colors.subtext} />
       <Text style={s.rowLabel}>{label}</Text>
     </View>
     <View style={s.rowRight}>
-      {value ? <Text style={[s.rowValue, valueTint && { color: valueTint }]}>{value}</Text> : null}
+      {value ? <Text style={s.rowValue}>{value}</Text> : null}
       <Ionicons name="chevron-forward" size={16} color={colors.subtext} />
     </View>
   </TouchableOpacity>
@@ -159,13 +227,13 @@ const SwitchRow: React.FC<{
 );
 
 const s = StyleSheet.create({
-  top:{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", paddingHorizontal: spacing(2), paddingTop: spacing(2), paddingBottom: spacing(1) },
-  title:{ color: colors.text, fontSize: 28, fontWeight: "800" },
-  iconBtn:{ width: 40, height: 40, borderRadius: 12, alignItems:"center", justifyContent:"center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing(2), paddingTop: spacing(2), paddingBottom: spacing(1) },
+  title: { color: colors.text, fontSize: 28, fontWeight: "800" },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
 
-  sectionTitle:{ color: colors.subtext, marginBottom: 8, fontWeight:"600" },
+  sectionTitle: { color: colors.subtext, marginBottom: 8, fontWeight: "600" },
 
-  row:{
+  row: {
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -176,8 +244,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  rowLeft:{ flexDirection:"row", alignItems:"center", gap: 10 },
-  rowLabel:{ color: colors.text, fontSize: 16, fontWeight:"600" },
-  rowRight:{ flexDirection:"row", alignItems:"center", gap: 8 },
-  rowValue:{ color: colors.subtext, fontWeight:"600" },
+  rowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
+  rowLabel: { color: colors.text, fontSize: 16, fontWeight: "600" },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowValue: { color: colors.subtext, fontWeight: "600" },
 });
