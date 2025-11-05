@@ -5,20 +5,22 @@ import type { Session } from "@supabase/supabase-js";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { supabase } from "../lib/supabase";
-import { takeOnbDraft } from "../storage/onboarding";
+import { applyPendingProfileOnce } from "../storage/pendingProfile";
 
 WebBrowser.maybeCompleteAuthSession();
 
+/* ===== Typ kontekstu ===== */
 type AuthCtx = {
   session: Session | null;
   loading: boolean;
   signIn(email: string, password: string): Promise<{ error?: string }>;
-  signUp(email: string, password: string, meta?: { firstName?: string }): Promise<{ error?: string }>;
+  signUp(email: string, password: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
   signInWithGoogle(): Promise<{ error?: string }>;
   googleSignIn?(): Promise<{ error?: string }>;
 };
 
+/* ===== Domyślny kontekst ===== */
 const AuthContext = createContext<AuthCtx>({
   session: null,
   loading: true,
@@ -31,68 +33,44 @@ const AuthContext = createContext<AuthCtx>({
 
 export const useAuth = () => useContext(AuthContext);
 
+/* ===== Provider ===== */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  /** ⬇️ po utworzeniu konta / zalogowaniu: przenieś dane z onboarding draft */
-  async function applyOnboardingDraftToProfile() {
-    try {
-      const draft = await takeOnbDraft();
-      if (!draft) return;
-
-      const { data: usr } = await supabase.auth.getUser();
-      const userId = usr.user?.id;
-      if (!userId) return;
-
-      const payload: Record<string, any> = {};
-      if (draft.name) payload.display_name = draft.name;
-      if (typeof draft.workoutsPerWeek === "number") payload.workouts_per_week = draft.workoutsPerWeek;
-      if (draft.focus) payload.focus = draft.focus;
-
-      if (Object.keys(payload).length === 0) return;
-
-      const { error } = await supabase.from("profiles").upsert({ id: userId, ...payload }, { onConflict: "id" });
-
-      if (error && error.message.includes("column") && error.message.includes("does not exist")) {
-        console.warn("Some profile columns missing, skipping...");
-        return;
-      }
-      if (error) console.warn("Profile upsert error:", error.message);
-    } catch (e) {
-      console.warn("[applyOnboardingDraftToProfile] failed:", e);
-    }
-  }
-
-  /** Inicjalizacja sesji + subskrypcja zmian */
+  /** ===== Inicjalizacja sesji ===== */
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getSession();
       setSession(data.session ?? null);
       setLoading(false);
-      if (data.session) await applyOnboardingDraftToProfile();
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, s) => {
+    // subskrypcja zmian sesji
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
       setSession(s ?? null);
-      if (s) await applyOnboardingDraftToProfile();
+
+      // 🔑 Po zalogowaniu (dowolna metoda) — wgraj dane z pendingProfile (jeśli są)
+      if (event === "SIGNED_IN" && s) {
+        try {
+          await applyPendingProfileOnce();
+        } catch (e: any) {
+          console.warn("[AuthProvider] applyPendingProfileOnce error:", e.message);
+        }
+      }
     });
 
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // --- email + hasło
+  /** ===== Auth Email/Password ===== */
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return error ? { error: error.message } : {};
   }
 
-  async function signUp(email: string, password: string, meta?: { firstName?: string }) {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: meta?.firstName ? { first_name: meta.firstName } : undefined },
-    });
+  async function signUp(email: string, password: string) {
+    const { error } = await supabase.auth.signUp({ email, password });
     return error ? { error: error.message } : {};
   }
 
@@ -100,11 +78,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
   }
 
-  // --- Google OAuth
+  /** ===== Google OAuth ===== */
   async function signInWithGoogle(): Promise<{ error?: string }> {
     try {
       const redirectTo = AuthSession.makeRedirectUri({
-        scheme: "gymtracker",
+        scheme: "gymtracker", // <- dopasuj do app.json
         path: "auth/callback",
         preferLocalhost: true,
       });
@@ -119,14 +97,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo, skipBrowserRedirect: true, queryParams: { prompt: "select_account" } },
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+          queryParams: { prompt: "select_account" },
+        },
       });
+
       if (error) return { error: error.message };
       if (!data?.url) return { error: "No OAuth URL returned" };
 
       const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      if (res.type !== "success" || !res.url) return { error: res.type === "cancel" ? "Canceled" : "Auth flow failed" };
+      if (res.type !== "success" || !res.url) {
+        return { error: res.type === "cancel" ? "Canceled" : "Auth flow failed" };
+      }
 
+      // parsuj code z URL-a
       let code: string | null = null;
       try {
         const u = new URL(res.url);
@@ -145,8 +131,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  /** ===== Context Value ===== */
   const value = useMemo<AuthCtx>(
-    () => ({ session, loading, signIn, signUp, signOut, signInWithGoogle, googleSignIn: signInWithGoogle }),
+    () => ({
+      session,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+      signInWithGoogle,
+      googleSignIn: signInWithGoogle,
+    }),
     [session, loading]
   );
 
