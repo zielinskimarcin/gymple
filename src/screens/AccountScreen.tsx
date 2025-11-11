@@ -175,7 +175,7 @@ export const AccountScreen = () => {
         Alert.alert("Error", "You must be signed in.");
         return;
       }
-      const clamped = Math.max(1, Math.min(14, Math.floor(n)));
+      const clamped = Math.max(1, Math.min(7, Math.floor(n)));
       const { error } = await supabase
         .from("profiles")
         .upsert({ id: userId, workouts_per_week: clamped }, { onConflict: "id" });
@@ -315,7 +315,7 @@ export const AccountScreen = () => {
                 </TouchableOpacity>
                 <Text style={s.weeklyValue}>{weeklyGoal}</Text>
                 <TouchableOpacity
-                  onPress={() => saveWorkoutsPerWeek(Math.min(14, weeklyGoal + 1))}
+                  onPress={() => saveWorkoutsPerWeek(Math.min(7, weeklyGoal + 1))}
                   style={s.counterBtn}
                 >
                   <Ionicons name="add" size={18} color={colors.text} />

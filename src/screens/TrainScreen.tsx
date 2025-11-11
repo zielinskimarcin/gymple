@@ -1,5 +1,4 @@
-// src/screens/TrainScreen.tsx
-import React, { useEffect, useMemo, useRef, useState, memo, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
   LayoutAnimation, UIManager, Platform, TextInput, ScrollView, Animated
@@ -31,6 +30,8 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type SetRowVM = { id: string; weight?: number; reps?: number; timeMin?: number; distance?: number };
 type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
+type TemplateWithFav = Template & { favorite?: boolean; favoriteAt?: string };
+
 type DbWorkout = {
   id: string;
   name: string;
@@ -48,6 +49,7 @@ function ordinal(n: number) { const s=["th","st","nd","rd"],v=n%100; return n + 
 function hoursAgo(iso: string) { const h=Math.floor((Date.now()-new Date(iso).getTime())/36e5); return h<24?`${h}h ago`:`${Math.floor(h/24)} days ago`; }
 function startOfWeek(d=new Date()){const day=d.getDay();const diff=(day===0?-6:1)-day;const res=new Date(d);res.setDate(d.getDate()+diff);res.setHours(0,0,0,0);return res;}
 function autoColorFromString(s: string){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;const hue=Math.abs(h)%360;return `hsl(${hue},55%,45%)`;}
+function hexToRgba(hex: string, alpha: number){ const h = hex.replace("#",""); const b = h.length===3? h.split("").map(c=>c+c).join(""):h; const r=parseInt(b.slice(0,2),16), g=parseInt(b.slice(2,4),16), bl=parseInt(b.slice(4,6),16); return `rgba(${r},${g},${bl},${alpha})`; }
 
 export const TrainScreen = () => {
   const nav = useNavigation<Nav>();
@@ -62,17 +64,18 @@ export const TrainScreen = () => {
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
 
-  // templates
-  const [templates, setTemplates] = useState<Template[]>([]);
+  // templates (z ulubionymi)
+  const [templates, setTemplates] = useState<TemplateWithFav[]>([]);
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
 
   // custom exercises
   const [customDb, setCustomDb] = useState<Exercise[]>([]);
   const [sessionFeaturedIds, setSessionFeaturedIds] = useState<Set<string>>(new Set());
 
-  // profile avatar
+  // profile avatar & goal
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [avatarColor, setAvatarColor] = useState<string | null>(null);
+  const [weeklyGoal, setWeeklyGoal] = useState<number>(3); // domyślnie 3
 
   // last workout
   const [lastWorkout, setLastWorkout] = useState<DbWorkout | null>(null);
@@ -92,8 +95,9 @@ export const TrainScreen = () => {
   useEffect(() => {
     (async () => {
       const userTpls = await loadTemplates();
-      setTemplates([...DEFAULT_TEMPLATES, ...userTpls]);
-      const sel = await getSelectedTemplateId(); setSelectedTplId(sel);
+      // połącz z defaultami (defaulty nie mają fav)
+      setTemplates([...(DEFAULT_TEMPLATES as TemplateWithFav[]), ...(userTpls || [])]);
+      const sel = await getSelectedTemplateId(); setSelectedTplId(sel || null);
       const cx = await fetchCustomExercises(); setCustomDb(cx);
       await Promise.all([loadProfile(), loadLastAndWeek()]);
     })();
@@ -101,12 +105,17 @@ export const TrainScreen = () => {
   }, [focused]);
 
   const loadProfile = useCallback(async () => {
-    if (!userId) { setDisplayName(null); setAvatarColor(null); return; }
-    const { data, error } = await supabase.from("profiles")
-      .select("display_name, avatar_color").eq("id", userId).maybeSingle();
-    if (error){ setDisplayName(null); setAvatarColor(null); return; }
+    if (!userId) { setDisplayName(null); setAvatarColor(null); setWeeklyGoal(3); return; }
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("display_name, avatar_color, workouts_per_week")
+      .eq("id", userId)
+      .maybeSingle();
+    if (error){ setDisplayName(null); setAvatarColor(null); setWeeklyGoal(3); return; }
     setDisplayName(data?.display_name ?? null);
     setAvatarColor((data as any)?.avatar_color ?? null);
+    const goal = Number(data?.workouts_per_week ?? 3);
+    setWeeklyGoal(goal > 0 ? goal : 3);
   }, [userId]);
 
   const loadLastAndWeek = useCallback(async () => {
@@ -154,11 +163,16 @@ export const TrainScreen = () => {
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
   const newDefaultSet = (ex:Exercise):SetRowVM => isCardio(ex)? {id:uid(), timeMin:5, distance:0.5}:{id:uid(), weight:20, reps:8};
 
-  function addDefault(ex:Exercise){
-    setExList(p=> p.find(e=>e.id===ex.id)? p : [...p,{...ex,sets:[],expanded:true}]);
-    setSessionFeaturedIds(prev => new Set(prev).add(ex.id));
-    LayoutAnimation.configureNext(LayoutAnimation.create(140, 'easeInEaseOut', 'opacity'));
-  }
+  // --- PODMIEŃ W src/screens/TrainScreen.tsx ---
+function addDefault(ex: Exercise) {
+  setExList((p) =>
+    p.find((e) => e.id === ex.id)
+      ? p
+      : [...p, { ...ex, sets: [], expanded: false }] // ⬅️ zwinięte po dodaniu
+  );
+  setSessionFeaturedIds((prev) => new Set(prev).add(ex.id));
+  LayoutAnimation.configureNext(LayoutAnimation.create(140, "easeInEaseOut", "opacity"));
+}
   function toggleExpand(id:string){
     LayoutAnimation.configureNext(LayoutAnimation.create(140, 'easeInEaseOut', 'opacity'));
     setExList(p=>p.map(e=>e.id===id?{...e,expanded:!e.expanded}:e));
@@ -181,11 +195,6 @@ export const TrainScreen = () => {
     }, mode:"preview" });
   }
 
-  const selectedTemplate = useMemo(
-    () => templates.find(t => t.id === selectedTplId) || null,
-    [templates, selectedTplId]
-  );
-
   const allById = useMemo(() => {
     const map = new Map<string, Exercise>();
     for (const e of DEFAULT_EXERCISES) map.set(e.id, e);
@@ -193,9 +202,14 @@ export const TrainScreen = () => {
     return map;
   }, [customDb]);
 
+  const selectedTemplate = useMemo(
+    () => templates.find(t => t.id === selectedTplId) || null,
+    [templates, selectedTplId]
+  );
+
   const featuredFromTemplate: Exercise[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    return selectedTemplate.exerciseIds.map(id => allById.get(id)).filter(Boolean) as Exercise[];
+    return (selectedTemplate.exerciseIds || []).map(id => allById.get(id)).filter(Boolean) as Exercise[];
   }, [selectedTemplate, allById]);
 
   const fallbackFeatured: Exercise[] = useMemo(() => {
@@ -211,7 +225,11 @@ export const TrainScreen = () => {
 
   function uniqById<T extends { id: string }>(arr: T[]): T[] {
     const seen = new Set<string>(); const out: T[] = [];
-    for (const it of arr) { if (seen.has(it.id)) continue; seen.add(it.id); out.push(it); }
+    for (const it of arr) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+    }
     return out;
   }
 
@@ -221,9 +239,28 @@ export const TrainScreen = () => {
     return merged.filter(d => !exList.some(e => e.id === d.id));
   }, [featuredFromTemplate, fallbackFeatured, sessionFeatured, exList]);
 
-  async function onPickTemplate(t: Template | "create") {
+  // --- SORT: ulubione na górze (nowszy favouriteAt -> wyżej), potem reszta (zachowaj kolejność)
+  const sortedTemplates = useMemo(() => {
+    const favs: TemplateWithFav[] = [];
+    const rest: TemplateWithFav[] = [];
+    templates.forEach(t => (t.favorite ? favs.push(t) : rest.push(t)));
+    favs.sort((a,b) => {
+      const ta = a.favoriteAt ? Date.parse(a.favoriteAt) : 0;
+      const tb = b.favoriteAt ? Date.parse(b.favoriteAt) : 0;
+      return tb - ta;
+    });
+    return [...favs, ...rest];
+  }, [templates]);
+
+  async function onPickTemplate(t: TemplateWithFav | "create") {
     if (t === "create") { nav.navigate("TemplateEditor" as never); return; }
-    setSelectedTplId(t.id); await setSelectedTemplateId(t.id);
+    if (selectedTplId === t.id) {
+      setSelectedTplId(null);
+      try { await setSelectedTemplateId(null); } catch {}
+      return;
+    }
+    setSelectedTplId(t.id);
+    try { await setSelectedTemplateId(t.id); } catch {}
   }
 
   // avatar
@@ -249,13 +286,13 @@ export const TrainScreen = () => {
     return { pct: 1.00, colors: ["#27B83E", "#2BBF3E"], text: `${ordinal(n)} workout this week: Time for a rest day!` };
   }
 
-  /** Animated progress */
+  /** Animated progress — skala do goal */
   const progAnim = useRef(new Animated.Value(0)).current;
+  const ratio = Math.max(0, Math.min(1, thisWeekCount / Math.max(weeklyGoal || 1, 1)));
   const meta = progressMeta(thisWeekCount);
   useEffect(() => {
-    Animated.timing(progAnim, { toValue: meta.pct, duration: 450, useNativeDriver: false })
-      .start();
-  }, [meta.pct]); // animuj gdy zmienia się liczba treningów w tygodniu
+    Animated.timing(progAnim, { toValue: ratio, duration: 450, useNativeDriver: false }).start();
+  }, [ratio]);
 
   const progWidth = progAnim.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
 
@@ -275,6 +312,8 @@ export const TrainScreen = () => {
   }
 
   function LastWorkoutCard() {
+    const goal = Math.max(weeklyGoal || 1, 1);
+    const ratioText = `${Math.min(thisWeekCount, goal)}/${goal} workouts this week`;
     if (!lastWorkout) {
       return (
         <View style={st.lastCard}>
@@ -283,7 +322,7 @@ export const TrainScreen = () => {
           <Text style={st.lastSub}>Begin your first workout below</Text>
           <View style={{ height: spacing(1.5) }} />
           <ProgressBar />
-          <Text style={st.pbText}>{meta.text}</Text>
+          <Text style={st.pbText}>{ratioText}: {meta.text.replace(/^[0-9]+(st|nd|rd|th) /, "")}</Text>
         </View>
       );
     }
@@ -311,10 +350,19 @@ export const TrainScreen = () => {
         </View>
 
         <ProgressBar />
-        <Text style={st.pbText}>{meta.text}</Text>
+        <Text style={st.pbText}>{ratioText}: {meta.text.replace(/^[0-9]+(st|nd|rd|th) /, "")}</Text>
       </View>
     );
   }
+
+  // start workout: jeśli nic nie wybrane → domyślne 4 ćwiczenia (DOMYŚLNIE ZWINIĘTE)
+  // --- PODMIEN TĘ FUNKCJĘ W src/screens/TrainScreen.tsx ---
+// --- PODMIEŃ W src/screens/TrainScreen.tsx ---
+function startWorkout() {
+  // Startujemy tryb treningu, ale NIE dodajemy żadnych ćwiczeń na listę.
+  setActive(true);
+  setExList((prev) => (prev.length > 0 ? prev : []));
+}
 
   return (
     <SafeAreaView style={st.safe}>
@@ -351,45 +399,54 @@ export const TrainScreen = () => {
 
         {!active ? (
           <>
-            {/* motywacyjny napis – trochę większy, ale bez pogrubiania */}
             <Text style={st.heroLine}>Ready to push your limits?</Text>
 
-            {/* last workout */}
             <View style={{ marginTop: spacing(2), marginBottom: spacing(2.4) }}>
               <LastWorkoutCard />
             </View>
 
-            {/* start CTA – równe marginesy wokół */}
             <View style={{ marginBottom: spacing(2.6) }}>
-              <TouchableOpacity style={st.ctaPrimary} onPress={()=>setActive(true)}>
+              <TouchableOpacity style={st.ctaPrimary} onPress={startWorkout}>
                 <Text style={st.ctaPrimaryText}>Start workout</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingBottom: spacing(4) }}>
-              <View style={st.tplHeader}>
-                <Text style={st.sectionTitle}>Templates</Text>
-                {selectedTplId ? (
-                  <TouchableOpacity onPress={()=>nav.navigate("TemplateEditor" as never, { id: selectedTplId } as never)}>
-                    <Text style={st.editLink}>Edit</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-
-              {/* 2 w rzędzie */}
-              <View style={st.tplGrid}>
-                {templates.map((t) => (
-                  <TemplateCardComp key={t.id} t={t} active={t.id === selectedTplId} onPick={onPickTemplate} />
-                ))}
-                <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
-                  <View style={st.tplCreateDash} />
-                  <View style={st.tplIconWrap}>
-                    <Ionicons name="add" size={24} color={colors.text} />
-                  </View>
-                  <Text style={st.tplName}>Custom</Text>
+            {/* Nagłówek przyklejony */}
+            <View style={st.tplHeader}>
+              <Text style={st.sectionTitle}>Templates</Text>
+              {selectedTplId ? (
+                <TouchableOpacity onPress={()=>nav.navigate("TemplateEditor" as never, { id: selectedTplId } as never)}>
+                  <Text style={st.editLink}>Edit</Text>
                 </TouchableOpacity>
-              </View>
-            </ScrollView>
+              ) : null}
+            </View>
+
+            {/* Scrollują się tylko kafelki – jedna lista, ulubione są po prostu na górze */}
+            <View style={{ flex: 1 }}>
+              <ScrollView contentContainerStyle={{ paddingBottom: spacing(8) }} showsVerticalScrollIndicator={false}>
+                <View style={st.tplGrid}>
+                  {sortedTemplates.map((t) => (
+                    <TemplateCardComp key={t.id} t={t} active={t.id === selectedTplId} onPick={onPickTemplate} />
+                  ))}
+
+                  {/* Kafelek „Custom” – ciemniejszy + dashed */}
+                  <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
+                    <View style={st.tplCreateDash} />
+                    <View style={st.tplIconWrap}>
+                      <Ionicons name="add" size={24} color={colors.text} />
+                    </View>
+                    <Text style={st.tplName}>Custom</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+
+              {/* Subtelny shade w kolorze tła */}
+              <LinearGradient
+                pointerEvents="none"
+                colors={["transparent", hexToRgba(colors.bg as any, 0.94)]}
+                style={st.bottomShade}
+              />
+            </View>
           </>
         ) : (
           <>
@@ -441,7 +498,7 @@ export const TrainScreen = () => {
                               <NumCounter label="min"
                                 value={s.timeMin ?? 5}
                                 onMinus={() => modSet(item.id,s.id,{timeMin:Math.max(0,(s.timeMin??5)-1)})}
-                                onPlus={() => modSet(item.id,s.id,{timeMin:(s.timeMin??5)+1})}
+                                onPlus={() => modSet(item.id,s.id,{timeMin:(s.timeMin ?? 5) + 1})}
                                 onType={(v)=>modSet(item.id,s.id,{timeMin:v})}
                               />
                             </>
@@ -491,10 +548,16 @@ export const TrainScreen = () => {
 
 function TemplateCardComp({
   t, active, onPick,
-}: { t: { id: string; name: string; icon: string }; active: boolean; onPick: (tpl: any) => void; }) {
+}: { t: { id: string; name: string; icon: string; favorite?: boolean }; active: boolean; onPick: (tpl: any) => void; }) {
   return (
     <TouchableOpacity onPress={() => onPick(t)} onLongPress={() => onPick(t)}
       style={[st.tplCard, active && st.tplCardActive]} activeOpacity={0.9}>
+      {/* gwiazdka tylko dla ulubionych */}
+      {t.favorite ? (
+        <View style={st.starBadge}>
+          <Ionicons name="star" size={14} color="#FFD166" />
+        </View>
+      ) : null}
       <View style={st.tplIconWrap}>
         <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={24} color={active ? "#FFFFFF" : colors.text} />
       </View>
@@ -575,8 +638,11 @@ const st = StyleSheet.create({
   tplCardActive:{ borderColor: colors.accent },
   tplIconWrap:{width:50,height:50,borderRadius:14,alignItems:"center",justifyContent:"center",backgroundColor:colors.muted,marginBottom:12},
   tplName:{color:colors.text,fontWeight:"800",fontSize:15},
-  tplCreate:{},
+
+  tplCreate:{ backgroundColor: "#111418" },
   tplCreateDash:{ position:"absolute", inset:0 as any, borderWidth:1.2, borderColor:colors.border, borderStyle:"dashed", borderRadius:18 },
+
+  starBadge:{ position:"absolute", top:8, right:8, width:22, height:22, borderRadius:11, backgroundColor:"#2b2f36", alignItems:"center", justifyContent:"center", borderWidth:1, borderColor:"#3a3f47", zIndex:2 },
 
   bottomDock:{backgroundColor:colors.bg,paddingTop:spacing(2),paddingHorizontal:spacing(2),paddingBottom:spacing(2),borderTopWidth:1,borderTopColor:colors.border},
   quickHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:spacing(1)},
@@ -604,4 +670,7 @@ const st = StyleSheet.create({
   counterInput:{flexGrow:1, minWidth:34, maxWidth:60, color:colors.text, textAlign:"center", fontWeight:"700", paddingVertical:0, paddingHorizontal:2},
   counterLabel:{color:colors.subtext, marginLeft:4, fontSize:10, flexShrink:0},
   trashBtn:{marginLeft:8, padding:6},
+
+  // subtelny shade w kolorze tła
+  bottomShade:{ position:"absolute", left:0, right:0, bottom:0, height:40 },
 });

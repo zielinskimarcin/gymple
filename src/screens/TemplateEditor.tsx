@@ -1,14 +1,6 @@
-// src/screens/TemplateEditor.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  FlatList,
-  ScrollView,
-  Alert,
+  View, Text, StyleSheet, TouchableOpacity, TextInput, FlatList, ScrollView, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -22,7 +14,7 @@ import { DEFAULT_TEMPLATES } from "../constants/defaultTemplates";
 
 import { fetchCustomExercises } from "../storage/customExercises";
 import { popLastAddedExerciseTemp } from "../storage/lastAdded";
-import { loadTemplates, saveTemplate, updateTemplate, deleteTemplate } from "../storage/templates";
+import { loadTemplates, saveTemplate, updateTemplate, deleteTemplate, setFavourite } from "../storage/templates";
 
 const ICON_KEYS = Object.keys(TEMPLATE_ICON_MAP) as Array<keyof typeof TEMPLATE_ICON_MAP>;
 type RouteParams = { id?: string };
@@ -42,6 +34,9 @@ export const TemplateEditor = () => {
     isDefaultTemplate ? (defaultMeta?.icon as keyof typeof TEMPLATE_ICON_MAP) : "flash"
   );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ulubione – dla custom templates (DB)
+  const [favorite, setFavorite] = useState<boolean>(false);
 
   const [custom, setCustom] = useState<Exercise[]>([]);
   const allExercises = useMemo<Exercise[]>(() => [...custom, ...DEFAULT_EXERCISES], [custom]);
@@ -77,6 +72,7 @@ export const TemplateEditor = () => {
           setName(defaultMeta?.name ?? "Template");
           setIcon((defaultMeta?.icon as keyof typeof TEMPLATE_ICON_MAP) ?? "flash");
           setSelectedIds(new Set(defaultMeta?.exerciseIds ?? []));
+          setFavorite(false);
         } else {
           const list = await loadTemplates();
           const t = list.find((x) => x.id === editingId);
@@ -84,6 +80,7 @@ export const TemplateEditor = () => {
             setName(t.name);
             setIcon(t.icon as keyof typeof TEMPLATE_ICON_MAP);
             setSelectedIds(new Set(t.exerciseIds ?? []));
+            setFavorite(!!t.favorite);
           }
         }
       }
@@ -115,9 +112,7 @@ export const TemplateEditor = () => {
           setCustom((prev) => uniqById([...prev, ...cx]));
         }
       })();
-      return () => {
-        alive = false;
-      };
+      return () => { alive = false; };
     }, [])
   );
 
@@ -137,9 +132,9 @@ export const TemplateEditor = () => {
 
     const mine = await loadTemplates(); // only user’s templates
     const mineSet = new Set(
-      mine
-        .filter((t) => t.id !== editingId) // allow keeping same name on the same record
-        .map((t) => t.name.trim().toLowerCase())
+      (mine || [])
+        .filter((t: any) => t.id !== editingId)
+        .map((t: any) => (t.name || "").trim().toLowerCase())
     );
 
     const defaultsSet = new Set(DEFAULT_TEMPLATES.map((t) => t.name.trim().toLowerCase()));
@@ -152,10 +147,11 @@ export const TemplateEditor = () => {
       return;
     }
 
-    // if editing a default template → saving is disabled (button already inactive),
-    // but guard here too just in case
+    // defaultów nie zapisujemy (UI nie zmieniam)
     if (isDefaultTemplate && editingId) {
       Alert.alert("Can't edit default template");
+      // @ts-ignore
+      nav.goBack();
       return;
     }
 
@@ -165,7 +161,6 @@ export const TemplateEditor = () => {
       return;
     }
 
-    // Block duplicate names (both vs your templates and defaults)
     if (await nameClashes(trimmed)) {
       Alert.alert("Name already exists", "Choose a different template name.");
       return;
@@ -178,20 +173,26 @@ export const TemplateEditor = () => {
       exerciseIds: Array.from(selectedIds),
     };
 
-    let res: { ok: boolean; error?: string };
+    let ok = true;
     if (editingId) {
-      res = await updateTemplate(payload.id, {
+      const { ok: resOk, error } = await updateTemplate(payload.id, {
         name: payload.name,
         icon: payload.icon,
         exerciseIds: payload.exerciseIds,
       });
+      ok = resOk;
+      if (!resOk) Alert.alert("Save failed", error || "Unknown error");
     } else {
-      res = await saveTemplate(payload);
+      const { ok: resOk, error } = await saveTemplate(payload);
+      ok = resOk;
+      if (!resOk) Alert.alert("Save failed", error || "Unknown error");
     }
 
-    if (!res.ok) {
-      Alert.alert("Save failed", res.error || "Unknown error");
-      return;
+    if (!ok) return;
+
+    // zapisz stan ulubionych do DB
+    if (!isDefaultTemplate) {
+      await setFavourite(payload.id, favorite);
     }
 
     // @ts-ignore
@@ -270,6 +271,26 @@ export const TemplateEditor = () => {
               );
             })}
           </ScrollView>
+
+          {/* Favourite toggle – bez dodatkowej ramki, tylko żółta gwiazdka */}
+          {!isDefaultTemplate && (
+            <TouchableOpacity
+              onPress={async () => {
+                const to = !favorite;
+                setFavorite(to);
+                if (editingId) {
+                  await setFavourite(editingId, to);
+                }
+              }}
+              style={s.favRow}
+              activeOpacity={0.85}
+            >
+              <View style={s.favStar}>
+                <Ionicons name={favorite ? "star" : "star-outline"} size={16} color={favorite ? "#FFD166" : colors.subtext} />
+              </View>
+              <Text style={s.favTxt}>{favorite ? "Remove from favourites" : "Add to favourites"}</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Search + Custom */}
@@ -323,12 +344,12 @@ export const TemplateEditor = () => {
         {/* Bottom */}
         <View style={s.bottomDock}>
           <TouchableOpacity
-            style={[s.saveBtn, saveDisabled && { opacity: 0.5 }]}
+            style={[s.saveBtn, (isDefaultTemplate && editingId) && { opacity: 0.5 }]}
             onPress={onSave}
-            disabled={saveDisabled}
+            disabled={isDefaultTemplate && !!editingId}
           >
             <Text style={s.saveTxt}>
-              {saveDisabled
+              {(isDefaultTemplate && editingId)
                 ? "Can’t edit default template"
                 : editingId
                   ? "Save changes"
@@ -359,13 +380,18 @@ const s = StyleSheet.create({
   iconDot: { width: 38, height: 38, borderRadius: 999, alignItems: "center", justifyContent: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   iconDotActive: { borderColor: colors.accent, backgroundColor: "#2b2f36" },
 
+  // favourites row – bez dodatkowej ramki po aktywacji
+  favRow: { flexDirection: "row", alignItems: "center", marginTop: spacing(1.5), gap: 10 },
+  favStar: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  favTxt: { color: colors.text, fontWeight: "700" },
+
   searchBar: { flexDirection: "row", alignItems: "center", backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 12, marginBottom: spacing(1.5), overflow: "hidden" },
   searchLeft: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, flex: 1 },
   searchInput: { flex: 1, color: colors.text, paddingVertical: 10 },
   quickAddBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 10, borderLeftWidth: 1, borderLeftColor: colors.border },
   quickAddTxt: { color: colors.accent, fontWeight: "700" },
 
-  row: { backgroundColor: colors.card, borderRadius: 12, padding: spacing(2), borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  row: { backgroundColor: colors.card, borderRadius: 12, padding: spacing(2), borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent:"space-between" },
   rowPicked: { borderColor: "#ff4d4d" },
   rowName: { color: colors.text, fontWeight: "700" },
   rowSub: { color: colors.subtext, marginTop: 2 },
