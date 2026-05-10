@@ -2,20 +2,24 @@
   "cli": { "version": ">= 7.0.0" },
   "build": {
     "simulator": {
+      "environment": "development",
       "ios": { "simulator": true }
     },
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "android": { "buildType": "apk" }
     },
     "development": {
+      "environment": "development",
       "developmentClient": true,
       "distribution": "internal"
     },
-    "production": {}
+    "production": {
+      "environment": "production"
+    }
   },
   "submit": {
     "production": {}
   }
 }
-
