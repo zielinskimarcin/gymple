@@ -8,11 +8,13 @@ import type { Exercise } from "../types";
 
 import { createCustomExercise } from "../storage/customExercises";
 import { setLastAddedExerciseTemp } from "../storage/lastAdded";
+import { useI18n } from "../i18n";
 
 const PRESET_GROUPS = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Full Body", "Cardio", "Other"];
 
 export const AddExerciseModal = () => {
   const nav = useNavigation();
+  const { t } = useI18n();
   const [name, setName] = useState("");
   const [group, setGroup] = useState<string>("Chest");
   const [customGroup, setCustomGroup] = useState("");
@@ -43,12 +45,13 @@ export const AddExerciseModal = () => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing(2), gap: spacing(2) }}>
-        <Text style={{ color: colors.text, fontSize: 20, fontWeight: "700" }}>Add Exercise</Text>
+        <Text style={{ color: colors.text, fontSize: 20, fontWeight: "700" }}>
+  {t("add_exercise.title")}
+</Text>
 
         <View>
-          <Text style={s.label}>Name</Text>
-          <TextInput
-            placeholder="e.g. Bulgarian Split Squat"
+          <Text style={s.label}>{t("add_exercise.name")}</Text>
+          <TextInput placeholder={t("add_exercise.placeholder_name")}
             placeholderTextColor={colors.subtext}
             value={name}
             onChangeText={setName}
@@ -57,7 +60,7 @@ export const AddExerciseModal = () => {
         </View>
 
         <View>
-          <Text style={s.label}>Muscle group</Text>
+          <Text style={s.label}>{t("add_exercise.muscle_group")}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {PRESET_GROUPS.map((g) => {
               const selected = group === g;
@@ -82,8 +85,8 @@ export const AddExerciseModal = () => {
             })}
           </View>
           {group === "Other" && (
-            <TextInput
-              placeholder="Custom group (e.g. Glutes)"
+            <TextInput 
+              placeholder={t("add_exercise.placeholder_custom_group")}
               placeholderTextColor={colors.subtext}
               value={customGroup}
               onChangeText={setCustomGroup}
@@ -93,7 +96,7 @@ export const AddExerciseModal = () => {
         </View>
 
         <TouchableOpacity style={s.save} onPress={save}>
-          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>Save</Text>
+          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>{t("common.save")}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

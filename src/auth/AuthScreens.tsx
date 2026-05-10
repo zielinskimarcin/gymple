@@ -1,4 +1,3 @@
-// src/auth/AuthScreens.tsx
 import React, { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform,
@@ -7,8 +6,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { colors, spacing } from "../theme";
 import { useAuth } from "./AuthProvider";
-import { setAfterSignupNeeded } from "../storage/onboarding";
-import { supabase } from "../lib/supabase";
+// ⛔ removed: import { setAfterSignupNeeded } from "../storage/onboarding";
+// ⛔ removed: import { supabase } from "../lib/supabase";
 
 /* ---------- header (UI only) ---------- */
 const AuthHeader: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
@@ -111,9 +110,8 @@ export const SignUpScreen = ({ navigation }: any) => {
     if (error) {
       setErr(error);
     } else {
-      // ⬅️ flagę po rejestracji ustawiamy DOPIERO po udanym signUp
-      await setAfterSignupNeeded(true);
-      setOk(true);
+      setOk(true); // account created; any confirmation info stays here
+      // ⛔ removed: setAfterSignupNeeded(true)
     }
   }
 
@@ -124,35 +122,10 @@ export const SignUpScreen = ({ navigation }: any) => {
       return;
     }
     setBusyGoogle(true);
-
     const { error } = await signInWithGoogle();
     setBusyGoogle(false);
-
-    if (error) {
-      setErr(error);
-      return;
-    }
-
-    // Po udanym Google sprawdź, czy profil już istnieje
-    try {
-      const { data: u } = await supabase.auth.getUser();
-      const uid = u.user?.id;
-      if (!uid) return;
-
-      const { data, error: qErr } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", uid)
-        .maybeSingle();
-
-      if (qErr) return; // nie wymuszaj ONB, jeśli zapytanie padło
-
-      if (!data) {
-        // świeże konto z Google → chcemy ONB
-        await setAfterSignupNeeded(true);
-      }
-      // jeśli data istnieje → stare konto → brak ONB
-    } catch {}
+    if (error) setErr(error);
+    // ⛔ removed: onboarding checks/flags for Google
   }
 
   function onApple() { /* UI only */ }

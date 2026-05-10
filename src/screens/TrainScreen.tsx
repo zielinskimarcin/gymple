@@ -21,6 +21,7 @@ import { fetchCustomExercises } from "../storage/customExercises";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { LinearGradient } from "expo-linear-gradient";
+import { useWeightUnit } from "../lib/useWeightUnit";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -80,6 +81,9 @@ export const TrainScreen = () => {
   // last workout
   const [lastWorkout, setLastWorkout] = useState<DbWorkout | null>(null);
   const [thisWeekCount, setThisWeekCount] = useState<number>(0);
+
+  const unit = useWeightUnit(); // "kg" | "lb"
+  const weightStep = unit === "lb" ? 5 : 2.5; // opcjonalnie: krok dla +/-
 
   /* timer */
   useEffect(() => {
@@ -474,10 +478,10 @@ function startWorkout() {
 
                           {!isCardio(item) ? (
                             <>
-                              <NumCounter label="kg" mode="float" maxDigits={4}
+                              <NumCounter label={unit} mode="float" maxDigits={4}
                                 value={s.weight ?? 20}
-                                onMinus={() => modSet(item.id,s.id,{weight:Math.max(0,(s.weight??20)-2.5)})}
-                                onPlus={() => modSet(item.id,s.id,{weight:(s.weight??20)+2.5})}
+                                onMinus={() => modSet(item.id, s.id, { weight: Math.max(0, (s.weight ?? 20) - weightStep) })}
+  onPlus={() => modSet(item.id, s.id, { weight: (s.weight ?? 20) + weightStep })}
                                 onType={(v)=>modSet(item.id,s.id,{weight:v})}
                               />
                               <NumCounter label="reps" mode="int" maxDigits={4}

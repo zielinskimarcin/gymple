@@ -24,11 +24,15 @@ import {
 } from "../db/workouts";
 import { setConfirmDone, setCancelDone } from "../storage";
 import { popLastAddedExerciseTemp } from "../storage/lastAdded";
+import { supabase } from "../lib/supabase";
+import { PaywallOverlay } from "../premium/PaywallOverlay";
+import { useWeightUnit } from "../lib/useWeightUnit";
 
 type SetRow = { id: string; weight?: number; reps?: number; timeMin?: number; distance?: number };
 type ExRow = { id: string; name: string; muscleGroup: string; sets: SetRow[] };
 
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const FREE_LIMIT = 5; // keep in sync with PremiumProvider if you use it
 
 export const WorkoutDetailScreen = () => {
   const route = useRoute<any>();
@@ -42,6 +46,11 @@ export const WorkoutDetailScreen = () => {
   const [w, setW] = useState<any | null>(null);
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<Record<string, boolean>>({});
+  const unit = useWeightUnit();             // "kg" | "lb"
+const weightStep = unit === "lbs" ? 5 : 2.5;
+
+  // paywall visibility
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -87,8 +96,27 @@ export const WorkoutDetailScreen = () => {
     }, [])
   );
 
+  // ile skończonych treningów ma user
+  async function finishedCount(uid: string) {
+    const { count, error } = await supabase
+      .from("workouts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", uid)
+      .eq("status", "finished");
+    if (error) return 0;
+    return count ?? 0;
+  }
+
   async function confirmAndExit() {
     if (!w || !userId) return;
+
+    // ZA KAŻDYM RAZEM sprawdzamy limit przed zapisem
+    const current = await finishedCount(userId);
+    if (current >= FREE_LIMIT) {
+      setPaywallVisible(true); // pokaż overlay i zablokuj zapis
+      return;
+    }
+
     const payload = { exercises: w.exercises ?? [] };
 
     if (isPreview) {
@@ -220,7 +248,7 @@ export const WorkoutDetailScreen = () => {
                         <View key={row.id} style={s.setRow}>
                           <Text style={s.setIndex}>{i + 1}</Text>
                           {!cardio ? (
-                            <Text style={s.setText}>{(row.weight ?? 0)} kg × {(row.reps ?? 0)}</Text>
+                            <Text style={s.setText}>{(row.weight ?? 0)} {unit} × {(row.reps ?? 0)}</Text>
                           ) : (
                             <Text style={s.setText}>{(row.distance ?? 0)} km · {(row.timeMin ?? 0)} min</Text>
                           )}
@@ -238,7 +266,7 @@ export const WorkoutDetailScreen = () => {
                           {!cardio ? (
                             <>
                               <NumCounter
-                                label="kg"
+                                label={unit}
                                 mode="float"
                                 maxDigits={4}
                                 value={row.weight ?? 20}
@@ -311,7 +339,7 @@ export const WorkoutDetailScreen = () => {
                 style={s.addExerciseTouch}
               >
                 <Ionicons name="search-outline" size={16} color="#fff" />
-<Text style={s.addExerciseTxt}>Add exercise</Text>
+                <Text style={s.addExerciseTxt}>Add exercise</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -327,6 +355,13 @@ export const WorkoutDetailScreen = () => {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* PAYWALL overlay — zawsze pojawia się przy limicie */}
+      <PaywallOverlay
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+        onUnlock={() => {}}
+      />
     </SafeAreaView>
   );
 };
@@ -422,10 +457,7 @@ const s = StyleSheet.create({
   addSetTxt:{ color:colors.text, fontWeight:"600" },
 
   // pasek "Add exercise"
-    // pasek "Add exercise"
-  addExerciseBar: {
-    marginTop: spacing(1.5),
-  },
+  addExerciseBar: { marginTop: spacing(1.5) },
   addExerciseTouch: {
     flexDirection: "row",
     alignItems: "center",
@@ -434,15 +466,11 @@ const s = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.bg, // czarne tło, jak cały ekran
+    backgroundColor: colors.bg,
     paddingVertical: 11,
     paddingHorizontal: 14,
   },
-  addExerciseTxt: {
-    color: "#fff", // biały napis
-    fontWeight: "500",
-    fontSize: 15,
-  },
+  addExerciseTxt: { color: "#fff", fontWeight: "500", fontSize: 15 },
 
   bottomDock:{ backgroundColor:colors.bg, paddingHorizontal:spacing(2), paddingTop:spacing(2), paddingBottom:spacing(2), borderTopWidth:1, borderTopColor:colors.border },
   confirmBtn:{ backgroundColor:colors.accent, borderRadius:14, alignItems:"center", paddingVertical:spacing(2) },
