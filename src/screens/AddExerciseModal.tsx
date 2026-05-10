@@ -14,32 +14,42 @@ const PRESET_GROUPS = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Fu
 
 export const AddExerciseModal = () => {
   const nav = useNavigation();
-  const { t } = useI18n();
+  const i = useI18n();
+  const t = i.t;
   const [name, setName] = useState("");
   const [group, setGroup] = useState<string>("Chest");
   const [customGroup, setCustomGroup] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function save() {
+    if (busy) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const mg = group === "Other" ? (customGroup.trim() || "Other") : group;
 
-    const res = await createCustomExercise(trimmed, mg);
-    if (!res.ok) {
-      Alert.alert("Cannot save", res.error || "Unknown error");
-      return;
-    }
-    // daj znać Template Editorowi / TrainScreenowi
-    await setLastAddedExerciseTemp({
-      id: res.ex!.id,
-      name: res.ex!.name,
-      muscleGroup: res.ex!.muscleGroup,
-      isCustom: true,
-      createdAt: Date.now(),
-    } as Exercise as any);
+    setBusy(true);
+    try {
+      const res = await createCustomExercise(trimmed, mg);
+      if (!res.ok) {
+        const message = res.error?.toLowerCase().includes("exists")
+          ? t("edit_exercise.duplicate")
+          : res.error || t("add_exercise.save_failed");
+        Alert.alert(t("common.error"), message);
+        return;
+      }
 
-    // @ts-ignore
-    nav.goBack();
+      await setLastAddedExerciseTemp({
+        id: res.ex!.id,
+        name: res.ex!.name,
+        muscleGroup: res.ex!.muscleGroup,
+        isCustom: true,
+        createdAt: Date.now(),
+      } as Exercise as any);
+
+      nav.goBack();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -95,7 +105,7 @@ export const AddExerciseModal = () => {
           )}
         </View>
 
-        <TouchableOpacity style={s.save} onPress={save}>
+        <TouchableOpacity style={[s.save, busy && { opacity: 0.6 }]} onPress={save} disabled={busy}>
           <Text style={{ color: "#0E0E10", fontWeight: "800" }}>{t("common.save")}</Text>
         </TouchableOpacity>
       </View>

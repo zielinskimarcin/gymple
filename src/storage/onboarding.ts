@@ -1,23 +1,18 @@
-// src/storage/onboarding.ts
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-/** Draft danych z ekranu Onboarding */
 export type OnbDraft = {
   name?: string;
   workoutsPerWeek?: number;
   focus?: "strength" | "hypertrophy" | "endurance" | "mixed";
 };
 
-/** Klucze lokalne */
 const DRAFT_KEY = "onboarding:draft";
 const DONE_KEY = "onboarding:done";
 
-/** NOWA flaga: onboarding wyłącznie po rejestracji */
 const AFTER_KEY = "onboarding:after_signup_needed";
 
-/** Prosty event bus do sygnalizowania zakończenia onboardingu */
 type DoneListener = (done: boolean) => void;
 const _listeners = new Set<DoneListener>();
 export const onboardingEvents = {
@@ -34,8 +29,6 @@ export const onboardingEvents = {
     });
   },
 };
-
-/* ---------------- storage helpers (web / native) ---------------- */
 
 async function getItem(key: string) {
   try {
@@ -70,8 +63,6 @@ async function delItem(key: string) {
   } catch {}
 }
 
-/* ---------------- Draft onboardingu ---------------- */
-
 export async function saveOnbDraft(partial: Partial<OnbDraft>) {
   const prev = await getItem(DRAFT_KEY);
   const cur: OnbDraft = prev ? JSON.parse(prev) : {};
@@ -93,8 +84,6 @@ export async function clearOnbDraft() {
   await delItem(DRAFT_KEY);
 }
 
-/* ---------------- Stara flaga „onboarding done” (zachowana) ---------------- */
-
 export async function markOnboardingDone(done: boolean) {
   if (done) await setItem(DONE_KEY, "1");
   else await delItem(DONE_KEY);
@@ -106,31 +95,20 @@ export async function isOnboardingDone(): Promise<boolean> {
   return v === "1";
 }
 
-/* ---------------- NOWE: flaga po rejestracji ---------------- */
-
-/** Ustaw TRUE w SignUp (także przy Google z ekranu rejestracji) */
 export async function setAfterSignupNeeded(val: boolean) {
   if (val) await setItem(AFTER_KEY, "1");
   else await delItem(AFTER_KEY);
 }
 
-/** Czy po świeżej rejestracji powinniśmy pokazać onboarding */
 export async function isAfterSignupNeeded(): Promise<boolean> {
   const v = await getItem(AFTER_KEY);
   return v === "1";
 }
 
-/** Wyczyść po ukończeniu onboardingu */
 export async function clearAfterSignupNeeded() {
   await delItem(AFTER_KEY);
 }
 
-/* ---------------- Reset pomocniczy (np. w Settings) ---------------- */
-
-/**
- * Wygodna funkcja do pełnego resetu stanu onboardingu lokalnie.
- * (Draft + done + after_signup_needed)
- */
 export async function resetOnboardingLocal() {
   await Promise.all([delItem(DRAFT_KEY), delItem(DONE_KEY), delItem(AFTER_KEY)]);
   onboardingEvents.emitDoneChanged(false);

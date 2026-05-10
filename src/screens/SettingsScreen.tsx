@@ -1,14 +1,7 @@
-// src/screens/SettingsScreen.tsx
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-  LayoutAnimation,
-  Platform,
-  UIManager,
+  View, Text, StyleSheet, TouchableOpacity, Alert,
+  LayoutAnimation, Platform, UIManager,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -16,7 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Localization from "expo-localization";
 
 import { colors, spacing } from "../theme";
-import { supabase } from "../lib/supabase";
+import { getSupabaseFunctionsUrl, supabase } from "../lib/supabase";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { markOnboardingDone, clearOnbDraft } from "../storage/onboarding";
@@ -28,17 +21,15 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 export const SettingsScreen = () => {
-  const nav = useNavigation();
+  const nav = useNavigation<any>();
 
-  // ===== i18n =====
   const i = useI18n();
-  // ✅ POPRAWKA: jeśli i18n.t(key) zwraca sam klucz (brak tłumaczenia), użyjemy fallbackT
   const t = (key: string) => {
     const fromCtx = i?.t ? i.t(key) : undefined;
     if (fromCtx && fromCtx !== key) return fromCtx;
     return fallbackT(key);
   };
-  const pref = i?.pref ?? "system"; // 'system' | 'en' | 'pl' | (opcjonalnie 'it')
+  const pref = i?.pref ?? "system";
   const setPreferredLanguage = i?.setPreferredLanguage;
 
   const sysCode = Localization.getLocales?.()[0]?.languageCode?.toLowerCase() || "en";
@@ -57,15 +48,12 @@ export const SettingsScreen = () => {
       ? t("common.italian")
       : t("common.english");
 
-  // ===== inne ustawienia =====
   const [loading, setLoading] = useState(true);
 
-  // Units
   const [units, setUnits] = useState<WeightUnit | null>(null);
   const [savingUnits, setSavingUnits] = useState(false);
   const [unitExpanded, setUnitExpanded] = useState(false);
 
-  // Language (dropdown)
   const [langExpanded, setLangExpanded] = useState(false);
   const [changingLang, setChangingLang] = useState(false);
 
@@ -117,6 +105,7 @@ export const SettingsScreen = () => {
               if (!userId) return Alert.alert(t("common.error"), t("settings.must_be_logged_in"));
 
               await Promise.all([
+                supabase.from("template_favourites").delete().eq("user_id", userId),
                 supabase.from("workouts").delete().eq("user_id", userId),
                 supabase.from("templates").delete().eq("user_id", userId),
                 supabase.from("custom_exercises").delete().eq("user_id", userId),
@@ -147,14 +136,13 @@ export const SettingsScreen = () => {
       setUnits(prev ?? "kg");
       Alert.alert(t("common.error"), e?.message ?? t("settings.units_update_failed"));
     } finally {
-           setSavingUnits(false);
+      setSavingUnits(false);
     }
   }
 
-  // ⬇️ rozszerzone o "it"
   async function applyLanguage(next: "system" | "en" | "pl" | "it") {
     if (!setPreferredLanguage) {
-      Alert.alert(t("common.error"), "i18n not initialized.");
+      Alert.alert(t("common.error"), t("settings.lang_update_failed"));
       return;
     }
     if (changingLang || (pref as any) === next) return;
@@ -168,11 +156,89 @@ export const SettingsScreen = () => {
     }
   }
 
+function confirmDeleteAccount() {
+  const title = t("settings.delete_account");
+
+  const message =
+    `${t("settings.delete_hint_part1")}\n\n` +
+    `${t("settings.delete_hint_part2")}\n\n` +
+    `${t("settings.delete_hint_part3")}`;
+
+  Alert.alert(
+    title,
+    message,
+    [
+      { text: t("common.cancel"), style: "cancel" },
+      { text: t("common.delete"), style: "destructive", onPress: deleteAccountNow },
+    ],
+    { cancelable: true }
+  );
+}
+
+async function performLogoutAndRedirect() {
+  await supabase.auth.signOut();
+  try { await AsyncStorage.clear(); } catch {}
+  try { await SecureStore.deleteItemAsync("prefs"); } catch {}
+  await clearOnbDraft();
+  await markOnboardingDone(false);
+}
+
+async function deleteAccountNow() {
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    const accessToken = s?.session?.access_token;
+    if (!accessToken) {
+      Alert.alert(t("common.error"), t("settings.must_be_logged_in"));
+      return;
+    }
+
+    const base = getSupabaseFunctionsUrl();
+    if (!base) {
+      Alert.alert(t("common.error"), t("settings.func_url_error"));
+      return;
+    }
+
+    const delRes = await fetch(`${base}/delete-account`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason: "user_self_delete" }),
+    });
+
+    const delText = await delRes.text();
+    let delJson: any = {};
+    try { delJson = JSON.parse(delText); } catch { delJson = { raw: delText }; }
+
+    if (!delRes.ok || delJson?.error) {
+      const msg = delJson?.detail || delJson?.error || `HTTP ${delRes.status}`;
+
+      const isUserAlreadyDeleted =
+        msg.includes("User from sub claim in JWT does not exist") ||
+        msg.includes("User not allowed") ||
+        delRes.status === 401;
+
+      if (isUserAlreadyDeleted) {
+        await performLogoutAndRedirect();
+        return;
+      }
+
+      Alert.alert(t("common.error"), t("settings.deletion_failed_message"));
+      return;
+    }
+
+    await performLogoutAndRedirect();
+
+  } catch (e: any) {
+    Alert.alert(t("common.error"), e?.message ?? t("settings.deletion_failed_network"));
+  }
+}
+
   const unitsLabel = units ? units.toLowerCase() : "…";
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* Top bar */}
       <View style={s.top}>
         <Text style={s.title}>{t("settings.title")}</Text>
         <TouchableOpacity
@@ -185,9 +251,7 @@ export const SettingsScreen = () => {
       </View>
 
       <View style={{ padding: spacing(2) }}>
-        {/* General */}
         <Section title={t("settings.general")}>
-          {/* Language (dropdown-like) */}
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
@@ -212,35 +276,13 @@ export const SettingsScreen = () => {
 
           {langExpanded && (
             <View style={s.dropdown}>
-              <DropdownItem
-                label={`${t("settings.system")} (${systemLabel})`}
-                selected={pref === "system"}
-                onPress={() => applyLanguage("system")}
-                disabled={changingLang}
-              />
-              <DropdownItem
-                label={t("common.english")}
-                selected={pref === "en"}
-                onPress={() => applyLanguage("en")}
-                disabled={changingLang}
-              />
-              <DropdownItem
-                label={t("common.polish")}
-                selected={pref === "pl"}
-                onPress={() => applyLanguage("pl")}
-                disabled={changingLang}
-              />
-              {/* 🇮🇹 Włoski */}
-              <DropdownItem
-                label={t("common.italian")}
-                selected={pref === "it"}
-                onPress={() => applyLanguage("it")}
-                disabled={changingLang}
-              />
+              <DropdownItem label={`${t("settings.system")} (${systemLabel})`} selected={pref === "system"} onPress={() => applyLanguage("system")} disabled={changingLang} />
+              <DropdownItem label={t("common.english")} selected={pref === "en"} onPress={() => applyLanguage("en")} disabled={changingLang} />
+              <DropdownItem label={t("common.polish")} selected={pref === "pl"} onPress={() => applyLanguage("pl")} disabled={changingLang} />
+              <DropdownItem label={t("common.italian")} selected={pref === "it"} onPress={() => applyLanguage("it")} disabled={changingLang} />
             </View>
           )}
 
-          {/* Weight Unit (expandable) */}
           <TouchableOpacity
             activeOpacity={0.8}
             onPress={() => {
@@ -255,72 +297,33 @@ export const SettingsScreen = () => {
             </View>
             <View style={s.rowRight}>
               <Text style={s.rowValue}>{unitsLabel}</Text>
-              <Ionicons
-                name={unitExpanded ? "chevron-up" : "chevron-down"}
-                size={16}
-                color={colors.subtext}
-              />
+              <Ionicons name={unitExpanded ? "chevron-up" : "chevron-down"} size={16} color={colors.subtext} />
             </View>
           </TouchableOpacity>
 
           {unitExpanded && (
             <View style={s.dropdown}>
-              <DropdownItem
-                label="kg"
-                selected={units === "kg"}
-                onPress={() => applyUnits("kg")}
-                disabled={savingUnits || units === null}
-              />
-              <DropdownItem
-                label="lbs"
-                selected={units === "lbs"}
-                onPress={() => applyUnits("lbs")}
-                disabled={savingUnits || units === null}
-              />
+              <DropdownItem label="kg" selected={units === "kg"} onPress={() => applyUnits("kg")} disabled={savingUnits || units === null} />
+              <DropdownItem label="lbs" selected={units === "lbs"} onPress={() => applyUnits("lbs")} disabled={savingUnits || units === null} />
             </View>
           )}
         </Section>
 
-        {/* Account */}
         <Section title={t("settings.account")}>
-          <Row
-            onPress={() => nav.navigate("Profile" as never)}
-            leftIcon="person-outline"
-            label={t("settings.profile")}
-            value={t("common.edit")}
-          />
-          <Row
-            onPress={onClearCloudData}
-            leftIcon="trash-outline"
-            label={t("settings.clear_account_data")}
-          />
-          <Row
-            onPress={() => {
-              Alert.alert(t("settings.delete_account"), t("settings.delete_account_hint"));
-            }}
-            leftIcon="trash-outline"
-            label={t("settings.delete_account")}
-          />
+          <Row onPress={() => nav.navigate("Profile" as never)} leftIcon="person-outline" label={t("settings.profile")} value={t("common.edit")} />
+          <Row onPress={onClearCloudData} leftIcon="trash-outline" label={t("settings.clear_account_data")} />
         </Section>
 
-        {/* Data & Privacy */}
         <Section title={t("settings.data_privacy")}>
-          <Row
-            onPress={onResetAllData}
-            leftIcon="reload-circle-outline"
-            label={t("settings.reset_all")}
-          />
+          <Row onPress={onResetAllData} leftIcon="reload-circle-outline" label={t("settings.reset_all")} />
+          <Row onPress={confirmDeleteAccount} leftIcon="trash-outline" label={t("settings.delete_account")} />
         </Section>
 
-        {loading ? (
-          <Text style={{ color: colors.subtext, marginTop: 8 }}>{t("common.loading")}</Text>
-        ) : null}
+        {loading ? <Text style={{ color: colors.subtext, marginTop: 8 }}>{t("common.loading")}</Text> : null}
       </View>
     </SafeAreaView>
   );
 };
-
-/* ======= UI helpers ======= */
 
 const DropdownItem = ({
   label,
@@ -369,10 +372,8 @@ const Row: React.FC<{
   </TouchableOpacity>
 );
 
-/* ======= fallback słówka ======= */
 function fallbackT(key: string) {
   const dict: Record<string, string> = {
-    // common
     "common.loading": "Loading…",
     "common.cancel": "Cancel",
     "common.reset": "Reset",
@@ -384,7 +385,6 @@ function fallbackT(key: string) {
     "common.polish": "Polski",
     "common.italian": "Italiano",
 
-    // settings
     "settings.title": "Settings",
     "settings.general": "General",
     "settings.language": "Language",
@@ -393,7 +393,6 @@ function fallbackT(key: string) {
     "settings.account": "Account",
     "settings.profile": "Profile",
     "settings.delete_account": "Delete account",
-    "settings.delete_account_hint": "You can delete your account from Profile screen.",
     "settings.data_privacy": "Data & Privacy",
     "settings.reset_all": "Reset all data",
     "settings.reset_all_hint":
@@ -407,44 +406,31 @@ function fallbackT(key: string) {
     "settings.must_be_logged_in": "You must be logged in.",
     "settings.lang_update_failed": "Could not change language.",
     "settings.units_update_failed": "Could not update units.",
+    "settings.func_url_error": "Functions base URL not resolved from client.",
+    "settings.deletion_failed_message": "Account deletion failed.",
+    "settings.deletion_failed_network": "Account deletion failed.",
+    "settings.logs_tip": "Please try again in a moment.",
   };
   return dict[key] ?? key;
 }
 
-/* ======= styles ======= */
 const s = StyleSheet.create({
   top: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing(2),
-    paddingTop: spacing(2),
-    paddingBottom: spacing(1),
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: spacing(2), paddingTop: spacing(2), paddingBottom: spacing(1),
   },
   title: { color: colors.text, fontSize: 28, fontWeight: "800" },
   iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
+    width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center",
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
   },
 
   sectionTitle: { color: colors.subtext, marginBottom: 8, fontWeight: "600" },
 
   row: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 16, paddingVertical: 14, paddingHorizontal: 14,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
   rowLabel: { color: colors.text, fontSize: 16, fontWeight: "600" },
@@ -452,26 +438,14 @@ const s = StyleSheet.create({
   rowValue: { color: colors.subtext, fontWeight: "600" },
 
   dropdown: {
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    marginTop: 6,
-    padding: spacing(1),
+    backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 14, marginTop: 6, padding: spacing(1),
   },
   ddItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10,
   },
-  ddItemActive: {
-    backgroundColor: "#202329",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  ddItemActive: { backgroundColor: "#202329", borderWidth: 1, borderColor: colors.border },
   ddText: { color: colors.text, fontWeight: "600" },
   ddTextActive: { color: colors.text },
 });

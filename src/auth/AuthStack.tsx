@@ -10,11 +10,10 @@ export type AuthStackParamList = {
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 type Props = {
-  /** ustaw "SignUp", żeby startować od rejestracji */
   initialRouteName?: keyof AuthStackParamList;
 };
 
-export const AuthStack: React.FC<Props> = ({ initialRouteName = "SignIn" }) => {
+export const AuthStack: React.FC<Props> = ({ initialRouteName = "SignUp" }) => {
   return (
     <Stack.Navigator
       screenOptions={{ headerShown: false }}

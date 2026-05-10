@@ -22,6 +22,9 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { LinearGradient } from "expo-linear-gradient";
 import { useWeightUnit } from "../lib/useWeightUnit";
+import { AppLogo } from "../components/AppLogo";
+import {Easing} from "react-native";
+import { useI18n } from "../i18n";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -32,6 +35,7 @@ type SetRowVM = { id: string; weight?: number; reps?: number; timeMin?: number; 
 type ExVM = Exercise & { sets: SetRowVM[]; expanded?: boolean };
 
 type TemplateWithFav = Template & { favorite?: boolean; favoriteAt?: string };
+type GradientPair = [string, string];
 
 type DbWorkout = {
   id: string;
@@ -44,7 +48,6 @@ type DbWorkout = {
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 
-/* helpers */
 function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
 function ordinal(n: number) { const s=["th","st","nd","rd"],v=n%100; return n + (s[(v-20)%10] || s[v] || s[0]); }
 function hoursAgo(iso: string) { const h=Math.floor((Date.now()-new Date(iso).getTime())/36e5); return h<24?`${h}h ago`:`${Math.floor(h/24)} days ago`; }
@@ -54,59 +57,68 @@ function hexToRgba(hex: string, alpha: number){ const h = hex.replace("#",""); c
 
 export const TrainScreen = () => {
   const nav = useNavigation<Nav>();
+  const { t } = useI18n();
   const focused = useIsFocused();
   const { session } = useAuth();
   const userId = session?.user?.id ?? "";
   const userEmail = session?.user?.email ?? "";
 
   const [active, setActive] = useState(false);
-  const [name, setName] = useState("Workout");
+  const [name, setName] = useState(t("train.default_workout_name"));
   const [exList, setExList] = useState<ExVM[]>([]);
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef<number | null>(null);
 
-  // templates (z ulubionymi)
   const [templates, setTemplates] = useState<TemplateWithFav[]>([]);
   const [selectedTplId, setSelectedTplId] = useState<string | null>(null);
 
-  // custom exercises
   const [customDb, setCustomDb] = useState<Exercise[]>([]);
   const [sessionFeaturedIds, setSessionFeaturedIds] = useState<Set<string>>(new Set());
 
-  // profile avatar & goal
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [avatarColor, setAvatarColor] = useState<string | null>(null);
-  const [weeklyGoal, setWeeklyGoal] = useState<number>(3); // domyślnie 3
-
-  // last workout
+  const [weeklyGoal, setWeeklyGoal] = useState<number>(3);
   const [lastWorkout, setLastWorkout] = useState<DbWorkout | null>(null);
   const [thisWeekCount, setThisWeekCount] = useState<number>(0);
 
-  const unit = useWeightUnit(); // "kg" | "lb"
-  const weightStep = unit === "lb" ? 5 : 2.5; // opcjonalnie: krok dla +/-
+  const unit = useWeightUnit();
+  const weightStep = unit === "lbs" ? 5 : 2.5;
 
-  /* timer */
+const pressAnim = useRef(new Animated.Value(1)).current;
+
+const activeFade = useRef(new Animated.Value(0)).current;
+const activeSlide = useRef(new Animated.Value(20)).current;
+
+useEffect(() => {
+  if (active) {
+    activeFade.setValue(0);
+    activeSlide.setValue(20);
+    Animated.parallel([
+      Animated.timing(activeFade, {
+        toValue: 1,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(activeSlide, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }
+}, [active, activeFade, activeSlide]);
   useEffect(() => {
-    let t: NodeJS.Timer | null = null;
+    let t: ReturnType<typeof setInterval> | null = null;
     if (active) {
       if (!startRef.current) startRef.current = Date.now() - elapsed;
       t = setInterval(() => startRef.current && setElapsed(Date.now() - startRef.current!), 1000);
     } else { startRef.current = null; setElapsed(0); }
-    return () => t && clearInterval(t);
+    return () => {
+      if (t) clearInterval(t);
+    };
   }, [active]);
-
-  /* load data on focus */
-  useEffect(() => {
-    (async () => {
-      const userTpls = await loadTemplates();
-      // połącz z defaultami (defaulty nie mają fav)
-      setTemplates([...(DEFAULT_TEMPLATES as TemplateWithFav[]), ...(userTpls || [])]);
-      const sel = await getSelectedTemplateId(); setSelectedTplId(sel || null);
-      const cx = await fetchCustomExercises(); setCustomDb(cx);
-      await Promise.all([loadProfile(), loadLastAndWeek()]);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focused]);
 
   const loadProfile = useCallback(async () => {
     if (!userId) { setDisplayName(null); setAvatarColor(null); setWeeklyGoal(3); return; }
@@ -123,20 +135,45 @@ export const TrainScreen = () => {
   }, [userId]);
 
   const loadLastAndWeek = useCallback(async () => {
+    if (!userId) {
+      setLastWorkout(null);
+      setThisWeekCount(0);
+      return;
+    }
+
     const { data: last } = await supabase
       .from("workouts")
       .select("id,name,started_at,duration_sec,payload")
+      .eq("user_id", userId)
       .order("started_at", { ascending: false }).limit(1);
     setLastWorkout(last?.[0] ?? null);
 
     const since = startOfWeek();
     const { count } = await supabase
       .from("workouts").select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
       .gte("started_at", since.toISOString());
     setThisWeekCount(count || 0);
-  }, []);
+  }, [userId]);
 
-  /* consume lastAdded */
+  useEffect(() => {
+    if (!focused) return;
+    let alive = true;
+    (async () => {
+      const userTpls = await loadTemplates();
+      if (!alive) return;
+      setTemplates([...(DEFAULT_TEMPLATES as TemplateWithFav[]), ...(userTpls || [])]);
+      const sel = await getSelectedTemplateId();
+      if (!alive) return;
+      setSelectedTplId(sel || null);
+      const cx = await fetchCustomExercises();
+      if (!alive) return;
+      setCustomDb(cx);
+      await Promise.all([loadProfile(), loadLastAndWeek()]);
+    })();
+    return () => { alive = false; };
+  }, [focused, loadProfile, loadLastAndWeek]);
+
   useFocusEffect(React.useCallback(() => {
     let alive = true;
     (async () => {
@@ -152,27 +189,46 @@ export const TrainScreen = () => {
     return () => { alive = false; };
   }, [active]));
 
-  /* flags from Summary */
-  useEffect(() => { (async () => {
+  useEffect(() => {
+    if (!focused) return;
+    (async () => {
     const ok = await popConfirmDone(); if (ok) { clearState(); await loadLastAndWeek(); return; }
     const cancel = await popCancelDone(); if (cancel) clearState();
   })(); }, [focused, loadLastAndWeek]);
 
-  function clearState(){
-    setActive(false); setExList([]); setName("Workout");
-    startRef.current=null; setElapsed(0); setSessionFeaturedIds(new Set());
-  }
+  function clearState() {
+  Animated.parallel([
+    Animated.timing(activeFade, {
+      toValue: 0,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }),
+    Animated.timing(activeSlide, {
+      toValue: 12,
+      duration: 220,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }),
+  ]).start(() => {
+    setActive(false);
+    setExList([]);
+    setName(t("train.default_workout_name"));
+    startRef.current = null;
+    setElapsed(0);
+    setSessionFeaturedIds(new Set());
+  });
+}
 
-  const subtitle = useMemo(()=> active?`Time: ${formatTime(elapsed)}`:"", [active,elapsed]);
+  const subtitle = useMemo(()=> active?`${t("train.time_label")}: ${formatTime(elapsed)}`:"", [active, elapsed, t]);
   const isCardio = (ex:Exercise) => (ex.muscleGroup||"").toLowerCase()==="cardio";
   const newDefaultSet = (ex:Exercise):SetRowVM => isCardio(ex)? {id:uid(), timeMin:5, distance:0.5}:{id:uid(), weight:20, reps:8};
 
-  // --- PODMIEŃ W src/screens/TrainScreen.tsx ---
 function addDefault(ex: Exercise) {
   setExList((p) =>
     p.find((e) => e.id === ex.id)
       ? p
-      : [...p, { ...ex, sets: [], expanded: false }] // ⬅️ zwinięte po dodaniu
+      : [...p, { ...ex, sets: [], expanded: false }]
   );
   setSessionFeaturedIds((prev) => new Set(prev).add(ex.id));
   LayoutAnimation.configureNext(LayoutAnimation.create(140, "easeInEaseOut", "opacity"));
@@ -243,7 +299,6 @@ function addDefault(ex: Exercise) {
     return merged.filter(d => !exList.some(e => e.id === d.id));
   }, [featuredFromTemplate, fallbackFeatured, sessionFeatured, exList]);
 
-  // --- SORT: ulubione na górze (nowszy favouriteAt -> wyżej), potem reszta (zachowaj kolejność)
   const sortedTemplates = useMemo(() => {
     const favs: TemplateWithFav[] = [];
     const rest: TemplateWithFav[] = [];
@@ -257,7 +312,7 @@ function addDefault(ex: Exercise) {
   }, [templates]);
 
   async function onPickTemplate(t: TemplateWithFav | "create") {
-    if (t === "create") { nav.navigate("TemplateEditor" as never); return; }
+    if (t === "create") { nav.navigate("TemplateEditor", {}); return; }
     if (selectedTplId === t.id) {
       setSelectedTplId(null);
       try { await setSelectedTemplateId(null); } catch {}
@@ -267,11 +322,9 @@ function addDefault(ex: Exercise) {
     try { await setSelectedTemplateId(t.id); } catch {}
   }
 
-  // avatar
   const initial = (displayName || userEmail || "?").trim().charAt(0).toUpperCase() || "?";
   const avatarBg = avatarColor || autoColorFromString(displayName || userEmail || "user");
 
-  // last workout stats
   const lastStats = useMemo(() => {
     if (!lastWorkout) return null;
     const ex = lastWorkout.payload?.exercises ?? [];
@@ -280,114 +333,148 @@ function addDefault(ex: Exercise) {
     return { totalSets, exercisesCount };
   }, [lastWorkout]);
 
-  function progressMeta(n: number) {
-    if (n <= 0) return { pct: 0.05, colors: ["#3a3f47", "#3a3f47"], text: "No workouts yet" };
-    if (n === 1) return { pct: 0.22, colors: ["#FF6A3C", "#FF5A3C"], text: `${ordinal(n)} workout this week: Good start!` };
-    if (n === 2) return { pct: 0.45, colors: ["#FFB84D", "#FFC34D"], text: `${ordinal(n)} workout this week: Keep it up!` };
-    if (n === 3) return { pct: 0.70, colors: ["#7EDB6A", "#9AD96A"], text: `${ordinal(n)} workout this week: Great pace!` };
-    if (n === 4) return { pct: 0.90, colors: ["#46D964", "#5AD65A"], text: `${ordinal(n)} workout this week: Awesome job!` };
-    if (n === 5) return { pct: 1.00, colors: ["#2FC84A", "#35C84A"], text: `${ordinal(n)} workout this week: You’ve done it!` };
-    return { pct: 1.00, colors: ["#27B83E", "#2BBF3E"], text: `${ordinal(n)} workout this week: Time for a rest day!` };
+  function progressMeta(done: number, goal: number) {
+  const g = Math.max(goal || 1, 1);
+  const r = Math.min(done / g, 1);
+
+  if (done >= g) {
+    return { pct: 1.0, colors: ["#27B83E", "#2BBF3E"] as GradientPair, msg: t("train.progress_done") };
   }
 
-  /** Animated progress — skala do goal */
-  const progAnim = useRef(new Animated.Value(0)).current;
-  const ratio = Math.max(0, Math.min(1, thisWeekCount / Math.max(weeklyGoal || 1, 1)));
-  const meta = progressMeta(thisWeekCount);
+  if (r === 0) {
+    return { pct: 0.05, colors: ["#3a3f47", "#3a3f47"] as GradientPair, msg: t("train.progress_start") };
+  }
+  if (r < 1 / 3) {
+    return { pct: r, colors: ["#FF6A3C", "#FF5A3C"] as GradientPair, msg: t("train.progress_good") };
+  }
+  if (r < 2 / 3) {
+    return { pct: r, colors: ["#FFB84D", "#FFC34D"] as GradientPair, msg: t("train.progress_keep") };
+  }
+  return { pct: r, colors: ["#7EDB6A", "#9AD96A"] as GradientPair, msg: t("train.progress_great") };
+}
+
+const progAnim = useRef(new Animated.Value(0)).current;
+const goal = Math.max(weeklyGoal || 1, 1);
+const ratio = Math.max(0, Math.min(1, thisWeekCount / goal));
+const meta = progressMeta(thisWeekCount, goal);
   useEffect(() => {
     Animated.timing(progAnim, { toValue: ratio, duration: 450, useNativeDriver: false }).start();
   }, [ratio]);
 
   const progWidth = progAnim.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] });
 
-  function ProgressBar() {
-    return (
-      <View style={st.pbWrap}>
-        <Animated.View style={[st.pbFillWrap, { width: progWidth }]}>
-          <LinearGradient
-            colors={meta.colors}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      </View>
-    );
-  }
+  function ProgressBar({ colors: gradColors }: { colors: GradientPair }) {
+  return (
+    <View style={st.pbWrap}>
+      <Animated.View style={[st.pbFillWrap, { width: progWidth }]}>
+        <LinearGradient
+          colors={gradColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+    </View>
+  );
+}
 
   function LastWorkoutCard() {
-    const goal = Math.max(weeklyGoal || 1, 1);
-    const ratioText = `${Math.min(thisWeekCount, goal)}/${goal} workouts this week`;
-    if (!lastWorkout) {
-      return (
-        <View style={st.lastCard}>
-          <Text style={st.miniLabel}>Welcome</Text>
-          <Text style={st.lastTitleWelcome}>Start Your Journey</Text>
-          <Text style={st.lastSub}>Begin your first workout below</Text>
-          <View style={{ height: spacing(1.5) }} />
-          <ProgressBar />
-          <Text style={st.pbText}>{ratioText}: {meta.text.replace(/^[0-9]+(st|nd|rd|th) /, "")}</Text>
-        </View>
-      );
-    }
-    const exC = lastStats?.exercisesCount ?? 0;
-    const setC = lastStats?.totalSets ?? 0;
+  const goalLocal = Math.max(weeklyGoal || 1, 1);
+  const doneLocal = Math.min(thisWeekCount, goalLocal);
+  const ratioText = `${doneLocal}/${goalLocal} ${
+    doneLocal === 1 ? t("train.workout_this_week_singular") : t("train.workouts_this_week_plural")
+  }`;
+  const metaLocal = progressMeta(thisWeekCount, goalLocal);
 
+  if (!lastWorkout) {
     return (
       <View style={st.lastCard}>
-        <View style={st.lastHeaderRow}>
-          <Text style={st.miniLabel}>Last workout</Text>
-          <Text style={st.lastAgo}>{hoursAgo(lastWorkout.started_at)}</Text>
-        </View>
-
-        <Text style={st.lastTitle} numberOfLines={1}>{lastWorkout.name || "Workout"}</Text>
-
-        <View style={st.lastMetaRow}>
-          <Ionicons name="time-outline" size={14} color={colors.subtext} />
-          <Text style={st.lastMeta}>
-            {Math.max(1, Math.floor((lastWorkout.duration_sec || 0) / 60))} min
-          </Text>
-          <Text style={st.lastDot}>•</Text>
-          <Text style={st.lastMeta}>{plural(exC, "exercise", "exercises")}</Text>
-          <Text style={st.lastDot}>•</Text>
-          <Text style={st.lastMeta}>{plural(setC, "set", "sets")}</Text>
-        </View>
-
-        <ProgressBar />
-        <Text style={st.pbText}>{ratioText}: {meta.text.replace(/^[0-9]+(st|nd|rd|th) /, "")}</Text>
+        <Text style={st.miniLabel}>{t("train.last_card_welcome")}</Text>
+        <Text style={st.lastTitleWelcome}>{t("train.last_card_start")}</Text>
+        <Text style={st.lastSub}>{t("train.last_card_begin")}</Text>
+        <View style={{ height: spacing(1.5) }} />
+        <ProgressBar colors={metaLocal.colors} />
+        <Text style={st.pbText}>{ratioText}: {metaLocal.msg}</Text>
       </View>
     );
   }
 
-  // start workout: jeśli nic nie wybrane → domyślne 4 ćwiczenia (DOMYŚLNIE ZWINIĘTE)
-  // --- PODMIEN TĘ FUNKCJĘ W src/screens/TrainScreen.tsx ---
-// --- PODMIEŃ W src/screens/TrainScreen.tsx ---
+  const exC = lastStats?.exercisesCount ?? 0;
+  const setC = lastStats?.totalSets ?? 0;
+
+  return (
+    <View style={st.lastCard}>
+      <View style={st.lastHeaderRow}>
+        <Text style={st.miniLabel}>{t("train.last_card_header")}</Text>
+        <Text style={st.lastAgo}>{hoursAgo(lastWorkout.started_at)}</Text>
+      </View>
+
+      <Text style={st.lastTitle} numberOfLines={1}>{lastWorkout.name || t("train.default_workout_name")}</Text>
+
+      <View style={st.lastMetaRow}>
+        <Ionicons name="time-outline" size={14} color={colors.subtext} />
+        <Text style={st.lastMeta}>
+          {Math.max(1, Math.floor((lastWorkout.duration_sec || 0) / 60))} {t("train.time_min")}
+        </Text>
+        <Text style={st.lastDot}>•</Text>
+        <Text style={st.lastMeta}>{plural(exC, t("train.exercise_singular"), t("train.exercise_plural"))}</Text>
+        <Text style={st.lastDot}>•</Text>
+        <Text style={st.lastMeta}>{plural(setC, t("train.set_singular"), t("train.set_plural"))}</Text>
+      </View>
+
+      <ProgressBar colors={metaLocal.colors} />
+      <Text style={st.pbText}>{ratioText}: {metaLocal.msg}</Text>
+    </View>
+  );
+}
+
 function startWorkout() {
-  // Startujemy tryb treningu, ale NIE dodajemy żadnych ćwiczeń na listę.
-  setActive(true);
-  setExList((prev) => (prev.length > 0 ? prev : []));
+  Animated.sequence([
+    Animated.timing(pressAnim, { toValue: 0.96, duration: 80, useNativeDriver: true }),
+    Animated.timing(pressAnim, { toValue: 1, duration: 110, useNativeDriver: true }),
+  ]).start(() => {
+    LayoutAnimation.configureNext(
+      LayoutAnimation.create(220, 'easeInEaseOut', 'opacity')
+    );
+    setActive(true);
+    setExList((prev) => (prev.length > 0 ? prev : []));
+  });
 }
 
   return (
     <SafeAreaView style={st.safe}>
       <View style={st.container}>
         {!active ? (
-          <View style={st.topBar}>
-            <Text style={st.title}>{name}</Text>
-            <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
-              <TouchableOpacity onPress={() => nav.navigate("Settings" as never)} style={st.topIconBtn}
-                hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
-                <Ionicons name="settings-outline" size={18} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => nav.navigate("Profile" as never)} style={st.avatarBtn}
-                hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
-                <View style={[st.avatarCircle,{backgroundColor:avatarBg}]}>
-                  <Text style={st.avatarInitial}>{(displayName||userEmail||"?").trim().charAt(0).toUpperCase()}</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
+      <View style={st.topBar}>
+      <View style={st.brandRow}>
+      <AppLogo size={30} radius={8} innerScale={1.12} offset={{ x: 2, y: 1 }} />
+      <Text style={st.brandName}>Gymple</Text>
+    </View>
+
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <TouchableOpacity
+        onPress={() => nav.navigate("Settings")}
+        style={st.topIconBtn}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="settings-outline" size={18} color={colors.text} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => nav.navigate("Profile")}
+        style={st.avatarBtn}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <View style={[st.avatarCircle, { backgroundColor: avatarBg }]}>
+          <Text style={st.avatarInitial}>
+            {(displayName || userEmail || "?").trim().charAt(0).toUpperCase()}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  </View>
+) : (
+
           <View style={st.headerActive}>
             <View>
               <Text style={st.title}>{name}</Text>
@@ -396,36 +483,38 @@ function startWorkout() {
               </Text>
             </View>
             <TouchableOpacity style={[st.pillButton,{backgroundColor:"#2E3136"}]} onPress={clearState}>
-              <Ionicons name="close" size={18} color={colors.text}/><Text style={st.pillText}>Cancel</Text>
+              <Ionicons name="close" size={18} color={colors.text}/><Text style={st.pillText}>{t("common.cancel")}</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {!active ? (
           <>
-            <Text style={st.heroLine}>Ready to push your limits?</Text>
+            <Text style={st.heroLine}>
+  {t("train.hero_line_ready")}{displayName ? `, ${displayName}?` : "?"}
+</Text>
 
             <View style={{ marginTop: spacing(2), marginBottom: spacing(2.4) }}>
               <LastWorkoutCard />
             </View>
 
             <View style={{ marginBottom: spacing(2.6) }}>
-              <TouchableOpacity style={st.ctaPrimary} onPress={startWorkout}>
-                <Text style={st.ctaPrimaryText}>Start workout</Text>
-              </TouchableOpacity>
-            </View>
+  <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
+  <TouchableOpacity style={st.ctaPrimary} onPress={startWorkout} activeOpacity={0.9}>
+    <Text style={st.ctaPrimaryText}>{t("train.cta_start")}</Text>
+  </TouchableOpacity>
+</Animated.View>
+</View>
 
-            {/* Nagłówek przyklejony */}
             <View style={st.tplHeader}>
-              <Text style={st.sectionTitle}>Templates</Text>
+              <Text style={st.sectionTitle}>{t("train.templates_header")}</Text>
               {selectedTplId ? (
-                <TouchableOpacity onPress={()=>nav.navigate("TemplateEditor" as never, { id: selectedTplId } as never)}>
-                  <Text style={st.editLink}>Edit</Text>
+                <TouchableOpacity onPress={() => nav.navigate("TemplateEditor", { id: selectedTplId })}>
+                  <Text style={st.editLink}>{t("common.edit")}</Text>
                 </TouchableOpacity>
               ) : null}
             </View>
 
-            {/* Scrollują się tylko kafelki – jedna lista, ulubione są po prostu na górze */}
             <View style={{ flex: 1 }}>
               <ScrollView contentContainerStyle={{ paddingBottom: spacing(8) }} showsVerticalScrollIndicator={false}>
                 <View style={st.tplGrid}>
@@ -433,18 +522,16 @@ function startWorkout() {
                     <TemplateCardComp key={t.id} t={t} active={t.id === selectedTplId} onPick={onPickTemplate} />
                   ))}
 
-                  {/* Kafelek „Custom” – ciemniejszy + dashed */}
                   <TouchableOpacity onPress={() => onPickTemplate("create")} style={[st.tplCard, st.tplCreate]} activeOpacity={0.9}>
                     <View style={st.tplCreateDash} />
                     <View style={st.tplIconWrap}>
                       <Ionicons name="add" size={24} color={colors.text} />
                     </View>
-                    <Text style={st.tplName}>Custom</Text>
+                    <Text style={st.tplName}>{t("train.custom_template")}</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
 
-              {/* Subtelny shade w kolorze tła */}
               <LinearGradient
                 pointerEvents="none"
                 colors={["transparent", hexToRgba(colors.bg as any, 0.94)]}
@@ -453,10 +540,10 @@ function startWorkout() {
             </View>
           </>
         ) : (
-          <>
-            <FlatList
+  <Animated.View style={{ flex: 1, opacity: activeFade, transform: [{ translateY: activeSlide }] }}>
+    <FlatList
               style={{flex:1}} data={exList} keyExtractor={it=>it.id}
-              ListEmptyComponent={<Text style={{color:colors.subtext,textAlign:"center",marginTop:spacing(6)}}>No exercises yet. Add one below.</Text>}
+              ListEmptyComponent={<Text style={{color:colors.subtext,textAlign:"center",marginTop:spacing(6)}}>{t("train.no_exercises_hint")}</Text>}
               renderItem={({item})=>(
                 <View style={st.exerciseCard}>
                   <TouchableOpacity onPress={()=>toggleExpand(item.id)} style={st.exerciseHeader}>
@@ -465,7 +552,7 @@ function startWorkout() {
                       <Text style={st.exerciseName}>{item.name}</Text>
                     </View>
                     <View style={{flexDirection:"row",alignItems:"center",gap:12}}>
-                      <Text style={st.setHint}>{item.sets.length} sets</Text>
+                      <Text style={st.setHint}>{plural(item.sets.length, t("train.set_singular"), t("train.set_plural"))}</Text>
                       {item.expanded && (<TouchableOpacity onPress={()=>removeExercise(item.id)}><Ionicons name="trash-outline" size={18} color={colors.subtext}/></TouchableOpacity>)}
                     </View>
                   </TouchableOpacity>
@@ -484,7 +571,7 @@ function startWorkout() {
   onPlus={() => modSet(item.id, s.id, { weight: (s.weight ?? 20) + weightStep })}
                                 onType={(v)=>modSet(item.id,s.id,{weight:v})}
                               />
-                              <NumCounter label="reps" mode="int" maxDigits={4}
+                              <NumCounter label={t("train.reps")} mode="int" maxDigits={4}
                                 value={s.reps ?? 8}
                                 onMinus={() => modSet(item.id,s.id,{reps:Math.max(0,(s.reps??8)-1)})}
                                 onPlus={() => modSet(item.id,s.id,{reps:(s.reps??8)+1})}
@@ -493,13 +580,13 @@ function startWorkout() {
                             </>
                           ) : (
                             <>
-                              <NumCounter label="km"
+                              <NumCounter label={t("train.km")}
                                 value={s.distance ?? 0.5}
                                 onMinus={() => modSet(item.id,s.id,{distance:Math.max(0, round1((s.distance??0.5)-0.1))})}
                                 onPlus={() => modSet(item.id,s.id,{distance:round1((s.distance??0.5)+0.1)})}
                                 onType={(v)=>modSet(item.id,s.id,{distance:v})}
                               />
-                              <NumCounter label="min"
+                              <NumCounter label={t("train.min")}
                                 value={s.timeMin ?? 5}
                                 onMinus={() => modSet(item.id,s.id,{timeMin:Math.max(0,(s.timeMin??5)-1)})}
                                 onPlus={() => modSet(item.id,s.id,{timeMin:(s.timeMin ?? 5) + 1})}
@@ -515,7 +602,7 @@ function startWorkout() {
                       ))}
 
                       <TouchableOpacity style={st.addSetBtn} onPress={()=>addSet(item.id)}>
-                        <Ionicons name="add" size={18} color={colors.text}/><Text style={st.addSetTxt}>Add set</Text>
+                        <Ionicons name="add" size={18} color={colors.text}/><Text style={st.addSetTxt}>{t("train.add_set")}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -526,8 +613,8 @@ function startWorkout() {
 
             <View style={st.bottomDock}>
               <View style={st.quickHeader}>
-                <Text style={st.sectionTitle}>Add exercise</Text>
-                <TouchableOpacity onPress={()=>nav.navigate("AddExercise")}><Text style={{color:colors.accent,fontWeight:"700"}}>Custom +</Text></TouchableOpacity>
+                <Text style={st.sectionTitle}>{t("train.add_exercise_header")}</Text>
+                <TouchableOpacity onPress={()=>nav.navigate("AddExercise")}><Text style={{color:colors.accent,fontWeight:"700"}}>{t("train.custom_plus")}</Text></TouchableOpacity>
               </View>
               <View style={st.chipsRow}>
                 {visibleFeatured.map(ex=>(
@@ -536,34 +623,34 @@ function startWorkout() {
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity style={[st.chip,st.searchChip]} onPress={()=>nav.navigate("SearchExercise")}>
-                  <Ionicons name="search-outline" size={14} color={colors.text}/><Text style={st.chipText}>Search</Text>
+                  <Ionicons name="search-outline" size={14} color={colors.text}/><Text style={st.chipText}>{t("train.search_cta")}</Text>
                 </TouchableOpacity>
               </View>
               <TouchableOpacity style={[st.ctaPrimary,{marginTop:spacing(2)}]} onPress={finishPreview}>
-                <Text style={st.ctaPrimaryText}>Finish</Text>
+                <Text style={st.ctaPrimaryText}>{t("train.cta_finish")}</Text>
               </TouchableOpacity>
             </View>
-          </>
+            </Animated.View>
+
         )}
-      </View>
-    </SafeAreaView>
+        </View>
+</SafeAreaView>
   );
 };
 
 function TemplateCardComp({
   t, active, onPick,
-}: { t: { id: string; name: string; icon: string; favorite?: boolean }; active: boolean; onPick: (tpl: any) => void; }) {
+}: { t: TemplateWithFav; active: boolean; onPick: (tpl: TemplateWithFav) => void; }) {
   return (
     <TouchableOpacity onPress={() => onPick(t)} onLongPress={() => onPick(t)}
       style={[st.tplCard, active && st.tplCardActive]} activeOpacity={0.9}>
-      {/* gwiazdka tylko dla ulubionych */}
       {t.favorite ? (
         <View style={st.starBadge}>
           <Ionicons name="star" size={14} color="#FFD166" />
         </View>
       ) : null}
       <View style={st.tplIconWrap}>
-        <Ionicons name={TEMPLATE_ICON_MAP[t.icon]} size={24} color={active ? "#FFFFFF" : colors.text} />
+        <Ionicons name={TEMPLATE_ICON_MAP[t.icon] ?? TEMPLATE_ICON_MAP.flash} size={24} color={active ? "#FFFFFF" : colors.text} />
       </View>
       <Text style={[st.tplName, active && { color: "#FFFFFF" }]} numberOfLines={1}>{t.name}</Text>
     </TouchableOpacity>
@@ -574,7 +661,7 @@ function NumCounter({
   label, value, onMinus, onPlus, onType, mode="float", maxDigits=4,
 }: { label: string; value: number; onMinus: () => void; onPlus: () => void; onType: (v:number)=>void; mode?: "int"|"float"; maxDigits?: number; }) {
   const [text, setText] = React.useState(String(value ?? ""));
-  React.useEffect(()=>{ const as = text===""?"":String(value ?? ""); if (as!==text) setText(as); },[value]); // eslint-disable-line
+  React.useEffect(()=>{ const as = text===""?"":String(value ?? ""); if (as!==text) setText(as); },[value]);
   function applyLimitAndSet(t:string){ if(t===""){setText("");return;} t=t.replace(",",".");
     if(mode==="int"){ t=t.replace(/\D+/g,""); } else { t=t.replace(/[^0-9.]/g,""); const parts=t.split("."); if(parts.length>2) t=parts[0]+"."+parts.slice(1).join(""); }
     const [intP, frac=""]=t.split("."); const limited=intP.slice(0,maxDigits);
@@ -599,7 +686,7 @@ const st = StyleSheet.create({
   safe:{flex:1,backgroundColor:colors.bg},
   container:{flex:1,paddingHorizontal:spacing(2)},
 
-  topBar:{paddingVertical:spacing(1.1),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
+  topBar:{paddingVertical:spacing(2),flexDirection:"row",justifyContent:"space-between",alignItems:"center"},
   topIconBtn:{padding:8,borderRadius:10,backgroundColor:colors.card,borderWidth:1,borderColor:colors.border},
 
   avatarBtn:{width:36,height:36,borderRadius:10,backgroundColor:colors.card,borderWidth:1,borderColor:colors.border,alignItems:"center",justifyContent:"center",padding:2},
@@ -674,7 +761,47 @@ const st = StyleSheet.create({
   counterInput:{flexGrow:1, minWidth:34, maxWidth:60, color:colors.text, textAlign:"center", fontWeight:"700", paddingVertical:0, paddingHorizontal:2},
   counterLabel:{color:colors.subtext, marginLeft:4, fontSize:10, flexShrink:0},
   trashBtn:{marginLeft:8, padding:6},
+brandRow: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "flex-start",
+  gap: 8,
+  position: "relative",
+},
 
-  // subtelny shade w kolorze tła
+logoWrap: {
+  transform: [
+    { translateX: -4 },
+    { translateY: -10 },
+  ],
+},
+
+brandName: {
+  color: colors.text,
+  fontSize: 22,
+  fontWeight: "700",
+  letterSpacing: 0.2,
+  transform: [
+    { translateX: 4 },
+    { translateY: 0 },
+  ],
+},
+
+ctaWrap: {
+  borderRadius: 16,
+  overflow: "hidden",
+  ...shadow,
+},
+ctaGrad: {
+  paddingVertical: spacing(2.4),
+  alignItems: "center",
+  justifyContent: "center",
+},
+ctaText: {
+  color: "#ffffff",
+  fontSize: 18,
+  fontWeight: "800",
+},
+
   bottomShade:{ position:"absolute", left:0, right:0, bottom:0, height:40 },
 });

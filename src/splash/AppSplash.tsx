@@ -1,10 +1,8 @@
-// src/splash/AppSplash.tsx
 import React, { useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Animated, Easing, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing } from "../theme";
 
-// Prosty, lekki splash z animacją (fade + scale + pulsujące kropki)
 export const AppSplash: React.FC<{ onComplete?: () => void; durationMs?: number }> = ({
   onComplete,
   durationMs = 1800,
@@ -22,7 +20,6 @@ export const AppSplash: React.FC<{ onComplete?: () => void; durationMs?: number 
       Animated.timing(scale, { toValue: 1, duration: 500, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true }),
     ]).start();
 
-    // pętla „oddychających” kropek
     const makeLoop = (v: Animated.Value, delay: number) =>
       Animated.loop(
         Animated.sequence([
@@ -47,7 +44,6 @@ export const AppSplash: React.FC<{ onComplete?: () => void; durationMs?: number 
   return (
     <View style={s.wrap}>
       <Animated.View style={[s.center, { opacity: fade, transform: [{ scale }] }]}>
-        {/* „Kafelek” z ikoną – bez dodatkowych zależności (minimalistyczny gradient-emulacja dwoma warstwami) */}
         <View style={s.logoTileOuter}>
           <View style={s.logoTileInner}/>
           <Ionicons name="barbell" size={56} color="#fff" style={{ position: "absolute" }} />
@@ -71,7 +67,7 @@ export const AppSplash: React.FC<{ onComplete?: () => void; durationMs?: number 
 const s = StyleSheet.create({
   wrap: {
     flex: 1,
-    backgroundColor: "#000", // wpasuje się w dark theme
+    backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -80,7 +76,6 @@ const s = StyleSheet.create({
   logoTileOuter: {
     width: 112, height: 112, borderRadius: 28,
     alignItems: "center", justifyContent: "center",
-    // pseudo-gradient: lekki cień + tło w stronę „pomarańcz-czerwony”
     backgroundColor: "#E6452E",
     shadowColor: "#E6452E",
     shadowOpacity: Platform.OS === "ios" ? 0.45 : 0.6,

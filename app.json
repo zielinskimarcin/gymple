@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "GymTracker",
+    "name": "Gymple",
     "slug": "gym-tracker",
-    "version": "1.0.0",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "scheme": "gymtracker",
     "splash": {
@@ -14,8 +14,9 @@
       "backgroundColor": "#0E0E10"
     },
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.yourcompany.gymtracker",
+      "supportsTablet": false,
+      "bundleIdentifier": "com.gymple.app",
+      "buildNumber": "1.0.1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -27,7 +28,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.yourcompany.gymtracker"
+      "package": "com.gymple.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,7 +36,9 @@
     "plugins": [
       "expo-secure-store",
       "expo-web-browser",
-      "expo-localization"
+      "expo-localization",
+      "expo-apple-authentication",
+      "expo-font"
     ],
     "extra": {
       "eas": {

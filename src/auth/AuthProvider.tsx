@@ -1,15 +1,16 @@
-// src/auth/AuthProvider.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 import type { Session } from "@supabase/supabase-js";
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
-import { supabase } from "../lib/supabase";
+import * as AppleAuthentication from "expo-apple-authentication";
+
+import { clearSupabaseAuthStorage, supabase } from "../lib/supabase";
+import { revenueCatLogIn, revenueCatLogOut } from "../premium/revenuecat";
 import { applyPendingProfileOnce } from "../storage/pendingProfile";
 
 WebBrowser.maybeCompleteAuthSession();
 
-/* ===== Typ kontekstu ===== */
 type AuthCtx = {
   session: Session | null;
   loading: boolean;
@@ -17,10 +18,11 @@ type AuthCtx = {
   signUp(email: string, password: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
   signInWithGoogle(): Promise<{ error?: string }>;
+  signInWithApple(): Promise<{ error?: string }>;
   googleSignIn?(): Promise<{ error?: string }>;
+  appleSignIn?(): Promise<{ error?: string }>;
 };
 
-/* ===== Domyślny kontekst ===== */
 const AuthContext = createContext<AuthCtx>({
   session: null,
   loading: true,
@@ -28,42 +30,64 @@ const AuthContext = createContext<AuthCtx>({
   signUp: async () => ({}),
   signOut: async () => {},
   signInWithGoogle: async () => ({}),
+  signInWithApple: async () => ({}),
   googleSignIn: async () => ({}),
+  appleSignIn: async () => ({}),
 });
 
 export const useAuth = () => useContext(AuthContext);
 
-/* ===== Provider ===== */
+function isInvalidRefreshTokenError(error: unknown) {
+  const message = String((error as any)?.message ?? "");
+  const code = String((error as any)?.code ?? "");
+  return (
+    message.includes("Invalid Refresh Token") ||
+    message.includes("Refresh Token Not Found") ||
+    code.includes("refresh_token")
+  );
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  /** ===== Inicjalizacja sesji ===== */
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session ?? null);
+      const { data, error } = await supabase.auth.getSession();
+      if (error && isInvalidRefreshTokenError(error)) {
+        await clearSupabaseAuthStorage();
+      }
+
+      const s = error ? null : data.session ?? null;
+      setSession(s);
       setLoading(false);
+
+      const uid = s?.user?.id;
+      if (uid) await revenueCatLogIn(uid);
+      else await revenueCatLogOut();
     })();
 
-    // subskrypcja zmian sesji
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, s) => {
       setSession(s ?? null);
 
-      // 🔑 Po zalogowaniu (dowolna metoda) — wgraj dane z pendingProfile (jeśli są)
       if (event === "SIGNED_IN" && s) {
+        const uid = s.user?.id;
+        if (uid) await revenueCatLogIn(uid);
+
         try {
           await applyPendingProfileOnce();
-        } catch (e: any) {
-          console.warn("[AuthProvider] applyPendingProfileOnce error:", e.message);
+        } catch {
         }
+      }
+
+      if (event === "SIGNED_OUT") {
+        await revenueCatLogOut();
       }
     });
 
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  /** ===== Auth Email/Password ===== */
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return error ? { error: error.message } : {};
@@ -78,11 +102,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
   }
 
-  /** ===== Google OAuth ===== */
   async function signInWithGoogle(): Promise<{ error?: string }> {
     try {
       const redirectTo = AuthSession.makeRedirectUri({
-        scheme: "gymtracker", // <- dopasuj do app.json
+        scheme: "gymtracker",
         path: "auth/callback",
         preferLocalhost: true,
       });
@@ -112,7 +135,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: res.type === "cancel" ? "Canceled" : "Auth flow failed" };
       }
 
-      // parsuj code z URL-a
       let code: string | null = null;
       try {
         const u = new URL(res.url);
@@ -122,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           code = hashParams.get("code");
         }
       } catch {}
+
       if (!code) return { error: "No authorization code returned" };
 
       const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
@@ -131,7 +154,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  /** ===== Context Value ===== */
+  async function signInWithApple(): Promise<{ error?: string }> {
+    try {
+      if (Platform.OS !== "ios") return { error: "Apple Sign-In is only available on iOS." };
+
+      const isAvailable = await AppleAuthentication.isAvailableAsync();
+      if (!isAvailable) return { error: "Apple Sign-In isn’t available on this device." };
+
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      const token = credential.identityToken;
+      if (!token) return { error: "No identity token returned from Apple." };
+
+      const { error } = await supabase.auth.signInWithIdToken({
+        provider: "apple",
+        token,
+      });
+
+      return error ? { error: error.message } : {};
+    } catch (e: any) {
+      if (e?.code === "ERR_REQUEST_CANCELED") return { error: "Canceled" };
+      return { error: e?.message || "Apple Sign-In error" };
+    }
+  }
+
   const value = useMemo<AuthCtx>(
     () => ({
       session,
@@ -140,7 +191,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       signUp,
       signOut,
       signInWithGoogle,
+      signInWithApple,
       googleSignIn: signInWithGoogle,
+      appleSignIn: signInWithApple,
     }),
     [session, loading]
   );

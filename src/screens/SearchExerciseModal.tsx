@@ -1,4 +1,3 @@
-// src/screens/SearchExerciseModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -15,6 +14,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { supabase } from "../lib/supabase";
 import { setLastAddedExerciseTemp } from "../storage/lastAdded";
+import { DEFAULT_EXERCISES } from "../constants/exercises";
+import { useI18n } from "../i18n";
 
 type Exercise = {
   id: string;
@@ -31,44 +32,48 @@ type SortMode = "group" | "alpha";
 
 export const SearchExerciseModal = () => {
   const nav = useNavigation();
+  const { t } = useI18n();
   const [q, setQ] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("group");
   const [loading, setLoading] = useState(true);
   const [all, setAll] = useState<Exercise[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  // fetch only from DB (default + user custom)
   useEffect(() => {
     (async () => {
       setLoading(true);
       setErr(null);
       try {
+        const { data: usr } = await supabase.auth.getUser();
+        const userId = usr.user?.id ?? null;
+        const customQuery = userId
+          ? supabase.from("custom_exercises").select("id,name,muscle_group").eq("user_id", userId)
+          : Promise.resolve({ data: [], error: null });
+
         const [{ data: defs, error: e1 }, { data: cust, error: e2 }] = await Promise.all([
           supabase.from("default_exercises").select("id,name,muscle_group"),
-          supabase.from("custom_exercises").select("id,name,muscle_group"),
+          customQuery,
         ]);
 
-        if (e1) throw e1;
         if (e2) throw e2;
 
-        const d: Exercise[] =
-          (defs ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group })) ?? [];
+        const d: Exercise[] = e1
+          ? DEFAULT_EXERCISES.map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscleGroup }))
+          : (defs ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group })) ?? [];
         const c: Exercise[] =
           (cust ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group, isCustom: true })) ?? [];
 
         const merged = [...d, ...c].sort((a, b) => a.name.localeCompare(b.name));
         setAll(merged);
-      } catch (e: any) {
-        console.warn("SearchExerciseModal fetch error:", e?.message || e);
-        setErr("Could not load exercises.");
+      } catch {
+        setErr(t("search_exercise.load_failed"));
         setAll([]);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [t]);
 
-  // filter
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return all;
@@ -79,12 +84,10 @@ export const SearchExerciseModal = () => {
     );
   }, [q, all]);
 
-  // rows with headers according to sort mode
   const rows: Row[] = useMemo(() => {
     if (!filtered.length) return [];
     const out: Row[] = [];
     if (sortMode === "group") {
-      // group by muscleGroup (A..Z)
       const map = new Map<string, Exercise[]>();
       for (const ex of filtered) {
         const g = ex.muscleGroup || "Other";
@@ -97,7 +100,6 @@ export const SearchExerciseModal = () => {
         for (const ex of list) out.push({ type: "item", key: `i_${ex.id}`, ex });
       }
     } else {
-      // alpha: by first letter of name
       const map = new Map<string, Exercise[]>();
       for (const ex of filtered) {
         const ch = (ex.name[0] || "#").toUpperCase();
@@ -117,22 +119,20 @@ export const SearchExerciseModal = () => {
 
   async function pick(ex: Exercise) {
     await setLastAddedExerciseTemp(ex);
-    nav.goBack(); // TrainScreen wciągnie to ćwiczenie do aktywnego workoutu
+    nav.goBack();
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-      {/* mini header */}
       <View style={s.top}>
-        <Text style={s.title}>Search</Text>
+        <Text style={s.title}>{t("search_exercise.title")}</Text>
 
-        {/* Sort toggle */}
         <View style={s.toggleWrap}>
           <TouchableOpacity
             style={[s.toggleBtn, sortMode === "group" && s.toggleBtnActive]}
             onPress={() => setSortMode("group")}
           >
-            <Text style={[s.toggleTxt, sortMode === "group" && s.toggleTxtActive]}>Group</Text>
+            <Text style={[s.toggleTxt, sortMode === "group" && s.toggleTxtActive]}>{t("search_exercise.group")}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.toggleBtn, sortMode === "alpha" && s.toggleBtnActive]}
@@ -143,7 +143,6 @@ export const SearchExerciseModal = () => {
         </View>
       </View>
 
-      {/* search bar */}
       <View style={s.searchRow}>
         <View style={s.searchBox}>
           <Ionicons name="search-outline" size={18} color={colors.subtext} />
@@ -151,13 +150,12 @@ export const SearchExerciseModal = () => {
             style={s.input}
             value={q}
             onChangeText={setQ}
-            placeholder="Search exercises or groups…"
+            placeholder={t("search_exercise.placeholder")}
             placeholderTextColor={colors.subtext}
           />
         </View>
       </View>
 
-      {/* body */}
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator />
@@ -168,7 +166,7 @@ export const SearchExerciseModal = () => {
         </View>
       ) : rows.length === 0 ? (
         <View style={s.emptyWrap}>
-          <Text style={s.emptyText}>No matches</Text>
+          <Text style={s.emptyText}>{t("search_exercise.no_matches")}</Text>
         </View>
       ) : (
         <FlatList
@@ -185,7 +183,7 @@ export const SearchExerciseModal = () => {
                   <Text style={s.name}>{item.ex.name}</Text>
                   <Text style={s.sub}>{item.ex.muscleGroup}</Text>
                 </View>
-                {item.ex.isCustom ? <Text style={s.badge}>CUSTOM</Text> : null}
+                {item.ex.isCustom ? <Text style={s.badge}>{t("search_exercise.custom_badge")}</Text> : null}
               </TouchableOpacity>
             )
           }
