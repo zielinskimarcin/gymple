@@ -1,0 +1,43 @@
+{
+  "common": {
+    "loading": "Caricamento…",
+    "cancel": "Annulla",
+    "reset": "Ripristina",
+    "delete": "Elimina",
+    "done": "Fatto",
+    "error": "Errore",
+    "edit": "Modifica",
+    "english": "English",
+    "polish": "Polski",
+    "italian": "Italiano"
+  },
+  "settings": {
+    "title": "Impostazioni",
+    "general": "Generale",
+    "language": "Lingua",
+    "system": "Sistema",
+    "weight": "Unità di peso",
+    "account": "Account",
+    "profile": "Profilo",
+    "delete_account": "Elimina account",
+    "delete_account_hint": "Puoi eliminare il tuo account dalla schermata del profilo.",
+    "data_privacy": "Dati e privacy",
+    "reset_all": "Ripristina tutti i dati",
+    "reset_all_hint": "Verrai disconnesso, le impostazioni locali verranno cancellate e tornerai alla schermata iniziale. I dati nel cloud rimarranno.",
+    "reset_error": "Impossibile ripristinare i dati.",
+    "clear_account_data": "Cancella i dati dell'account",
+    "clear_account_data_hint": "Questo eliminerà allenamenti, modelli e esercizi personalizzati dal cloud. Continuare?",
+    "cleared_ok": "Dati nel cloud eliminati.",
+    "clear_failed": "Impossibile cancellare i dati nel cloud.",
+    "must_be_logged_in": "Devi essere connesso.",
+    "lang_update_failed": "Impossibile cambiare la lingua.",
+    "units_update_failed": "Impossibile aggiornare le unità."
+  },
+  "add_exercise": {
+  "title": "Aggiungi esercizio",
+  "name": "Nome",
+  "muscle_group": "Gruppo muscolare",
+  "placeholder_name": "es. Squat bulgaro",
+  "placeholder_custom_group": "Gruppo personalizzato (es. Glutei)"
+}
+}

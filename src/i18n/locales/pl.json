@@ -1,0 +1,42 @@
+{
+  "common": {
+    "loading": "Ładowanie…",
+    "cancel": "Anuluj",
+    "reset": "Resetuj",
+    "delete": "Usuń",
+    "done": "Gotowe",
+    "error": "Błąd",
+    "edit": "Edytuj",
+    "english": "English",
+    "polish": "Polski"
+  },
+  "settings": {
+    "title": "Ustawienia",
+    "general": "Ogólne",
+    "language": "Język",
+    "system": "System",
+    "weight": "Jednostka wagi",
+    "account": "Konto",
+    "profile": "Profil",
+    "delete_account": "Usuń konto",
+    "delete_account_hint": "Konto możesz usunąć z ekranu Profil.",
+    "data_privacy": "Dane i prywatność",
+    "reset_all": "Resetuj wszystkie dane",
+    "reset_all_hint": "Zostaniesz wylogowany, lokalne ustawienia zostaną wyczyszczone i wrócisz do onboardingu. Dane w chmurze zostaną zachowane.",
+    "reset_error": "Nie udało się zresetować danych.",
+    "clear_account_data": "Wyczyść dane konta",
+    "clear_account_data_hint": "Spowoduje to usunięcie treningów, szablonów i własnych ćwiczeń z chmury. Kontynuować?",
+    "cleared_ok": "Dane w chmurze usunięte.",
+    "clear_failed": "Nie udało się wyczyścić danych w chmurze.",
+    "must_be_logged_in": "Musisz być zalogowany.",
+    "lang_update_failed": "Nie udało się zmienić języka.",
+    "units_update_failed": "Nie udało się zaktualizować jednostek."
+  },
+  "add_exercise": {
+  "title": "Dodaj ćwiczenie",
+  "name": "Nazwa",
+  "muscle_group": "Grupa mięśniowa",
+  "placeholder_name": "np. Przysiad bułgarski",
+  "placeholder_custom_group": "Własna grupa (np. Pośladki)"
+}
+}

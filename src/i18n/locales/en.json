@@ -1,0 +1,43 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "cancel": "Cancel",
+    "reset": "Reset",
+    "delete": "Delete",
+    "done": "Done",
+    "error": "Error",
+    "edit": "Edit",
+    "english": "English",
+    "polish": "Polski",
+    "save": "Save"
+  },
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "language": "Language",
+    "system": "System",
+    "weight": "Weight unit",
+    "account": "Account",
+    "profile": "Profile",
+    "delete_account": "Delete account",
+    "delete_account_hint": "You can delete your account from Profile screen.",
+    "data_privacy": "Data & Privacy",
+    "reset_all": "Reset all data",
+    "reset_all_hint": "You will be signed out, local settings will be cleared and the app will return to onboarding. Cloud data remains.",
+    "reset_error": "Could not reset data.",
+    "clear_account_data": "Clear account data",
+    "clear_account_data_hint": "This will delete your workouts, templates and custom exercises from the cloud. Continue?",
+    "cleared_ok": "Cloud data removed.",
+    "clear_failed": "Failed to wipe cloud data.",
+    "must_be_logged_in": "You must be logged in.",
+    "lang_update_failed": "Could not change language.",
+    "units_update_failed": "Could not update units."
+  },
+  "add_exercise": {
+  "title": "Add Exercise",
+  "name": "Name",
+  "muscle_group": "Muscle group",
+  "placeholder_name": "e.g. Bulgarian Split Squat",
+  "placeholder_custom_group": "Custom group (e.g. Glutes)"
+}
+}
