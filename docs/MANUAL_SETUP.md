@@ -66,8 +66,14 @@ SUPABASE_SERVICE_ROLE_KEY=
 
 ## Legal
 
-- [ ] Publish Privacy Policy
-- [ ] Publish Terms or EULA
+- [ ] Confirm the support email in `docs/privacy.html`, `docs/terms.html`, and `docs/support.html` is correct
+- [ ] If publishing as a company, replace "the developer" in `docs/terms.html` with the legal company name
+- [ ] Enable GitHub Pages: repository Settings -> Pages -> Deploy from a branch -> `main` -> `/docs`
+- [ ] After GitHub Pages deploys, open both legal pages in a browser
+- [ ] Set `EXPO_PUBLIC_PRIVACY_URL` to the deployed `privacy.html` URL
+- [ ] Set `EXPO_PUBLIC_TERMS_URL` to the deployed `terms.html` URL
+- [ ] Add the Privacy Policy URL in App Store Connect
+- [ ] Add the Support URL in App Store Connect
 - [ ] Policy describes collected data: email/account ID, profile preferences, workout data, purchase entitlement data, and support diagnostics if collected
 - [ ] Policy describes deletion and retention
 - [ ] Policy names third parties: Supabase, RevenueCat, Apple, Google if Google sign-in remains enabled

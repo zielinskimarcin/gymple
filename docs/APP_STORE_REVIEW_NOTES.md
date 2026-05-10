@@ -44,9 +44,9 @@ Privacy Policy and Terms links are available in:
 
 Replace these before review:
 
-- Privacy Policy: `REPLACE_WITH_PUBLIC_URL`
-- Terms: `REPLACE_WITH_PUBLIC_URL`
-- Support URL: `REPLACE_WITH_PUBLIC_URL`
+- Privacy Policy: `https://zielinskimarcin.github.io/gym-tracker-beta/privacy.html`
+- Terms: `https://zielinskimarcin.github.io/gym-tracker-beta/terms.html`
+- Support URL: `https://zielinskimarcin.github.io/gym-tracker-beta/support.html`
 
 ## Reviewer Tips
 
