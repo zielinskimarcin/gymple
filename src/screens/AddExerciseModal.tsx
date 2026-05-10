@@ -9,8 +9,10 @@ import type { Exercise } from "../types";
 import { createCustomExercise } from "../storage/customExercises";
 import { setLastAddedExerciseTemp } from "../storage/lastAdded";
 import { useI18n } from "../i18n";
+import { MUSCLE_GROUPS } from "../constants/exercises";
+import { formatMuscleGroup } from "../i18n/labels";
 
-const PRESET_GROUPS = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Full Body", "Cardio", "Other"];
+const PRESET_GROUPS = MUSCLE_GROUPS;
 
 export const AddExerciseModal = () => {
   const nav = useNavigation();
@@ -81,7 +83,9 @@ export const AddExerciseModal = () => {
                   onPress={() => setGroup(g)}
                   style={[s.chip, selected && { backgroundColor: colors.accent }]}
                 >
-                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>{g}</Text>
+                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>
+                    {formatMuscleGroup(t, g)}
+                  </Text>
                   {isOther && (
                     <Ionicons
                       name="create-outline"

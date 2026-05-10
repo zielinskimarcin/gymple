@@ -107,12 +107,12 @@ export const WorkoutDetailScreen = () => {
   async function confirmAndExit() {
     if (!w || !userId) return;
 
-    const allowed = await checkSaveLimit();
-    if (!allowed) return;
-
     const payload = { exercises: w.exercises ?? [] };
 
     if (isPreview) {
+      const allowed = await checkSaveLimit();
+      if (!allowed) return;
+
       const savedId = uid();
       const row: Omit<DbWorkout, "user_id"> = {
         id: savedId,

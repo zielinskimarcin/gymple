@@ -33,6 +33,10 @@ const AuthHeader: React.FC<{ title: string; subtitle: string }> = ({
   </View>
 );
 
+function isUserCancelledAuth(error?: string) {
+  return error === "Canceled";
+}
+
 export const SignInScreen = ({ navigation }: any) => {
   const { signIn, signInWithGoogle, signInWithApple } = useAuth() as any;
 
@@ -63,6 +67,7 @@ export const SignInScreen = ({ navigation }: any) => {
     setBusyGoogle(true);
     const { error } = await signInWithGoogle();
     setBusyGoogle(false);
+    if (isUserCancelledAuth(error)) return;
     if (error) setErr(error);
   }
 
@@ -75,6 +80,7 @@ export const SignInScreen = ({ navigation }: any) => {
     setBusyApple(true);
     const { error } = await signInWithApple();
     setBusyApple(false);
+    if (isUserCancelledAuth(error)) return;
     if (error) setErr(error);
   }
 
@@ -210,6 +216,7 @@ export const SignUpScreen = ({ navigation }: any) => {
     setBusyGoogle(true);
     const { error } = await signInWithGoogle();
     setBusyGoogle(false);
+    if (isUserCancelledAuth(error)) return;
     if (error) setErr(error);
   }
 
@@ -222,6 +229,7 @@ export const SignUpScreen = ({ navigation }: any) => {
     setBusyApple(true);
     const { error } = await signInWithApple();
     setBusyApple(false);
+    if (isUserCancelledAuth(error)) return;
     if (error) setErr(error);
   }
 

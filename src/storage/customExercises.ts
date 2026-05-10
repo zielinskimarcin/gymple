@@ -8,6 +8,23 @@ export type Exercise = {
   createdAt?: number;
 };
 
+function normalizeName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+async function customExerciseNameExists(userId: string, name: string, exceptId?: string) {
+  const normalized = normalizeName(name);
+  if (!normalized) return false;
+
+  const { data, error } = await supabase
+    .from("custom_exercises")
+    .select("id,name")
+    .eq("user_id", userId);
+
+  if (error) return false;
+  return (data ?? []).some((row) => row.id !== exceptId && normalizeName(row.name) === normalized);
+}
+
 export async function fetchCustomExercises(): Promise<Exercise[]> {
   const { data: u } = await supabase.auth.getUser();
   const userId = u?.user?.id;
@@ -34,6 +51,10 @@ export async function createCustomExercise(name: string, muscleGroup: string) {
   const userId = u?.user?.id;
   if (!userId) return { ok: false, error: "Not authenticated" };
 
+  if (await customExerciseNameExists(userId, name)) {
+    return { ok: false, error: "This exercise already exists." };
+  }
+
   const id = "c_" + Date.now();
   const row = { id, user_id: userId, name, muscle_group: muscleGroup };
 
@@ -53,6 +74,10 @@ export async function updateCustomExercise(id: string, patch: Partial<Pick<Exerc
   const { data: u } = await supabase.auth.getUser();
   const userId = u?.user?.id;
   if (!userId) return { ok: false, error: "Not authenticated" };
+
+  if (patch.name != null && await customExerciseNameExists(userId, patch.name, id)) {
+    return { ok: false, error: "This exercise already exists." };
+  }
 
   const upd: any = {};
   if (patch.name != null) upd.name = patch.name;
