@@ -1,4 +1,3 @@
-// src/constants/exercises.ts
 import type { Exercise, MuscleGroup } from "../types";
 
 export const MUSCLE_GROUPS: MuscleGroup[] = [
@@ -13,7 +12,6 @@ export const MUSCLE_GROUPS: MuscleGroup[] = [
   "Other",
 ];
 
-// Stabilne ID – używane w historii/chipach itp.
 export const DEFAULT_EXERCISES: Exercise[] = [
   { id: "bench",       name: "Bench Press",        muscleGroup: "Chest" },
   { id: "incline_db",  name: "Incline DB Press",   muscleGroup: "Chest" },
@@ -32,10 +30,8 @@ export const DEFAULT_EXERCISES: Exercise[] = [
 
   { id: "plank",       name: "Plank",              muscleGroup: "Core" },
 
-  // Full Body – przykładowe
   { id: "burpee",      name: "Burpees",            muscleGroup: "Full Body" },
 
-  // Cardio – przykładowe
   { id: "treadmill",   name: "Treadmill Run",      muscleGroup: "Cardio" },
 ];
 
@@ -51,6 +47,5 @@ export const sortByGroup = (a: Exercise, b: Exercise) => {
 export const sortByAlpha = (a: Exercise, b: Exercise) =>
   a.name.localeCompare(b.name);
 
-// Normalizacja do sprawdzania duplikatów
 export const normalizeName = (s: string) =>
   s.trim().toLowerCase().replace(/\s+/g, " ");

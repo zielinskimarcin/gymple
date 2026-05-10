@@ -10,18 +10,18 @@ export type Exercise = {
 };
 
 export type TemplateIconKey =
-  | "barbell"    // klasyk siłowy
-  | "flash"      // szybkie / intensywne
-  | "body"       // sylwetka
-  | "walk"       // kardio
-  | "star"       // uniwersalna gwiazdka
-  | "add";       // plus do „Custom template”
+  | "barbell"
+  | "flash"
+  | "body"
+  | "walk"
+  | "star"
+  | "add";
 
 export type Template = {
   id: string;
   name: string;
   icon: TemplateIconKey;
-  exerciseIds: string[]; // ID ćwiczeń (może zawierać customy)
+  exerciseIds: string[];
   createdAt: number;
   updatedAt: number;
 };

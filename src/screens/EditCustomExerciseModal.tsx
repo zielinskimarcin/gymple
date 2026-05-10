@@ -3,14 +3,19 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput } from "react-nativ
 import { colors, spacing } from "../theme";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { deleteCustomExerciseRemote, getCustomExerciseById, updateCustomExerciseRemote } from "../storage/remoteCustomExercises";
+import type { RootStackParamList } from "../navigation/AppNavigator";
+import { useI18n } from "../i18n";
 
 const PRESET_GROUPS = ["Chest","Back","Legs","Shoulders","Arms","Core","Full Body","Cardio","Other"];
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export const EditCustomExerciseModal = () => {
-  const nav = useNavigation();
+  const nav = useNavigation<Nav>();
   const route = useRoute<any>();
+  const { t } = useI18n();
   const { id } = route.params || {};
 
   const [name, setName] = useState<string>("");
@@ -37,22 +42,24 @@ export const EditCustomExerciseModal = () => {
     try {
       const mg = group === "Other" ? (customGroup.trim() || "Other") : group;
       await updateCustomExerciseRemote(id, { name: name.trim() || undefined, muscleGroup: mg });
-      // @ts-ignore
       nav.goBack();
     } catch (e: any) {
-      if (e?.message === "DUPLICATE_NAME") setError("This exercise already exists.");
-      else setError("Couldn't save changes. Try again.");
+      if (e?.message === "DUPLICATE_NAME") setError(t("edit_exercise.duplicate"));
+      else setError(t("edit_exercise.save_failed"));
     } finally {
       setBusy(false);
     }
   }
 
   async function remove() {
+    if (busy) return;
+    setError(null);
     setBusy(true);
     try {
       await deleteCustomExerciseRemote(id);
-      // @ts-ignore
       nav.goBack();
+    } catch {
+      setError(t("edit_exercise.delete_failed"));
     } finally {
       setBusy(false);
     }
@@ -61,13 +68,12 @@ export const EditCustomExerciseModal = () => {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing(2), gap: spacing(2) }}>
-        <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>Edit exercise</Text>
+        <Text style={{ color: colors.text, fontSize: 18, fontWeight: "800" }}>{t("edit_exercise.title")}</Text>
 
-        {/* RENAME */}
         <View>
-          <Text style={s.label}>Name</Text>
+          <Text style={s.label}>{t("add_exercise.name")}</Text>
           <TextInput
-            placeholder="Exercise name"
+            placeholder={t("edit_exercise.placeholder_name")}
             placeholderTextColor={colors.subtext}
             value={name}
             onChangeText={(t)=>{setName(t); setError(null);}}
@@ -76,9 +82,8 @@ export const EditCustomExerciseModal = () => {
           {!!error && <Text style={{ color: "#ff6961", marginTop: 6 }}>{error}</Text>}
         </View>
 
-        {/* GROUP */}
         <View>
-          <Text style={s.label}>Muscle group</Text>
+          <Text style={s.label}>{t("add_exercise.muscle_group")}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {PRESET_GROUPS.map((g) => {
               const selected = group === g;
@@ -104,7 +109,7 @@ export const EditCustomExerciseModal = () => {
           </View>
           {group === "Other" && (
             <TextInput
-              placeholder="Custom group (e.g. Glutes)"
+              placeholder={t("add_exercise.placeholder_custom_group")}
               placeholderTextColor={colors.subtext}
               value={customGroup}
               onChangeText={setCustomGroup}
@@ -114,11 +119,11 @@ export const EditCustomExerciseModal = () => {
         </View>
 
         <TouchableOpacity style={[s.save, busy && { opacity: 0.6 }]} onPress={saveChanges} disabled={busy}>
-          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>Save</Text>
+          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>{t("common.save")}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={remove} style={{ alignSelf: "center", marginTop: 8 }}>
-          <Text style={{ color: colors.subtext, textDecorationLine: "underline" }}>Delete</Text>
+        <TouchableOpacity onPress={remove} disabled={busy} style={{ alignSelf: "center", marginTop: 8, opacity: busy ? 0.6 : 1 }}>
+          <Text style={{ color: colors.subtext, textDecorationLine: "underline" }}>{t("common.delete")}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

@@ -1,7 +1,7 @@
 import { supabase } from "../lib/supabase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import type { Template as AppTemplate, TemplateIconKey } from "../types";
 
-/** ====== DB row (jak w Twojej tabeli) ====== */
 export type TemplateRecord = {
   id: string;
   user_id: string;
@@ -12,19 +12,11 @@ export type TemplateRecord = {
   updated_at?: string;
 };
 
-/** ====== Typ używany w UI ====== */
-export type Template = {
-  id: string;
-  name: string;
-  icon: string;          // klucz z TEMPLATE_ICON_MAP
-  exerciseIds: string[]; // w DB: exercise_ids
-
-  // pochodne (scalone z tabeli favourites użytkownika)
+export type Template = AppTemplate & {
   favorite?: boolean;
-  favoriteAt?: string;   // ISO z template_favourites.created_at
+  favoriteAt?: string;
 };
 
-/** ====== SELECTED TEMPLATE (lokalnie) ====== */
 const KEY_SELECTED = "selected_template_id";
 
 export async function getSelectedTemplateId(): Promise<string | null> {
@@ -42,48 +34,49 @@ export async function setSelectedTemplateId(id: string | null) {
   } catch {}
 }
 
-/** ====== Helpers ====== */
+function normalizeIcon(icon: string | null | undefined): TemplateIconKey {
+  const allowed: TemplateIconKey[] = ["barbell", "flash", "body", "walk", "star", "add"];
+  return allowed.includes(icon as TemplateIconKey) ? (icon as TemplateIconKey) : "flash";
+}
+
 function mapRowToTemplate(r: TemplateRecord): Template {
+  const createdAt = r.created_at ? new Date(r.created_at).getTime() : Date.now();
+  const updatedAt = r.updated_at ? new Date(r.updated_at).getTime() : createdAt;
+
   return {
     id: r.id,
     name: r.name,
-    icon: r.icon,
+    icon: normalizeIcon(r.icon),
     exerciseIds: r.exercise_ids || [],
+    createdAt,
+    updatedAt,
   };
 }
 
-/** ====== CRUD: templates (DB) + merge z tabelą template_favourites ====== */
 export async function loadTemplates(): Promise<Template[]> {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
   if (!userId) return [];
 
-  // 1) Szablony użytkownika
   const { data: trows, error: terr } = await supabase
     .from("templates")
     .select("id,user_id,name,icon,exercise_ids,created_at,updated_at")
     .eq("user_id", userId)
     .order("updated_at", { ascending: false });
 
-  if (terr) {
-    console.warn("[loadTemplates] templates error:", terr.message);
-  }
+  if (terr) return [];
   const templates = (trows || []).map(mapRowToTemplate);
 
-  // 2) Favourites użytkownika
   const { data: favs, error: ferr } = await supabase
     .from("template_favourites")
     .select("template_id,created_at")
     .eq("user_id", userId);
 
-  if (ferr) {
-    console.warn("[loadTemplates] favourites error:", ferr.message);
-  }
+  if (ferr) return templates;
 
   const favMap = new Map<string, string>();
   (favs || []).forEach((f: any) => favMap.set(f.template_id, f.created_at));
 
-  // 3) Merge flag
   const merged = templates.map((t) =>
     favMap.has(t.id)
       ? { ...t, favorite: true, favoriteAt: favMap.get(t.id)! }
@@ -93,7 +86,6 @@ export async function loadTemplates(): Promise<Template[]> {
   return merged;
 }
 
-/** Insert / upsert do DB */
 export async function saveTemplate(t: Template): Promise<{ ok: boolean; error?: string }> {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;
@@ -110,13 +102,11 @@ export async function saveTemplate(t: Template): Promise<{ ok: boolean; error?: 
 
   const { error } = await supabase.from("templates").upsert(row, { onConflict: "id" });
   if (error) {
-    console.warn("[saveTemplate] error:", error.message);
     return { ok: false, error: error.message };
   }
   return { ok: true };
 }
 
-/** Update pól w DB */
 export async function updateTemplate(
   id: string,
   patch: Partial<Pick<Template, "name" | "icon" | "exerciseIds">>
@@ -139,10 +129,7 @@ export async function updateTemplate(
       .eq("id", id)
       .eq("user_id", userId);
 
-    if (error) {
-      console.warn("[updateTemplate] error:", error.message);
-      return { ok: false, error: error.message };
-    }
+    if (error) return { ok: false, error: error.message };
   }
   return { ok: true };
 }
@@ -154,17 +141,14 @@ export async function deleteTemplate(id: string): Promise<{ ok: boolean; error?:
 
   const { error } = await supabase.from("templates").delete().eq("id", id).eq("user_id", userId);
   if (error) {
-    console.warn("[deleteTemplate] error:", error.message);
     return { ok: false, error: error.message };
   }
 
-  // porządek: usuń ewentualny favourite
   await supabase.from("template_favourites").delete().eq("template_id", id).eq("user_id", userId);
 
   return { ok: true };
 }
 
-/** ====== FAVOURITES (DB) ====== */
 export async function setFavourite(templateId: string, fav: boolean): Promise<{ ok: boolean; error?: string }> {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData?.user?.id;

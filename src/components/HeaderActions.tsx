@@ -1,4 +1,3 @@
-// src/components/HeaderActions.tsx
 import React from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -15,7 +14,6 @@ export const HeaderActions: React.FC = () => {
       pointerEvents="box-none"
       style={[styles.wrap, { top: Math.max(insets.top, 8) }]}
     >
-      {/* Settings */}
       <TouchableOpacity
         accessibilityLabel="Open Settings"
         onPress={() => nav.navigate("Settings")}
@@ -25,7 +23,6 @@ export const HeaderActions: React.FC = () => {
         <Ionicons name="settings-outline" size={18} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Profile */}
       <TouchableOpacity
         accessibilityLabel="Open Profile"
         onPress={() => nav.navigate("Profile")}

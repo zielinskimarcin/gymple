@@ -3,7 +3,7 @@ export const colors = {
   card: "#16171A",
   text: "#F4F4F5",
   subtext: "#B0B3B8",
-  accent: "#FF5A3C", // pomarańcz z inspiracji
+  accent: "#FF5A3C",
   border: "#232427",
   muted: "#2B2D31",
 };

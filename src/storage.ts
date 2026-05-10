@@ -7,7 +7,6 @@ const KEY_LAST_ADDED_EX = "last_added_custom_ex_v1";
 const KEY_CONFIRM_DONE = "confirm_done_workout_id_v1";
 const KEY_CANCEL_DONE = "cancel_done_flag_v1";
 
-// ---------- Workouts ----------
 export async function loadWorkouts(): Promise<any[]> {
   const raw = await AsyncStorage.getItem(KEY_WORKOUTS);
   return raw ? JSON.parse(raw) : [];
@@ -28,7 +27,6 @@ export async function deleteWorkout(workoutId: string) {
   await AsyncStorage.setItem(KEY_WORKOUTS, JSON.stringify(filtered));
 }
 
-// ---------- Custom exercises ----------
 export async function loadCustomExercises(): Promise<Exercise[]> {
   const raw = await AsyncStorage.getItem(KEY_CUSTOM_EX);
   return raw ? JSON.parse(raw) : [];
@@ -54,7 +52,6 @@ export async function updateCustomExercise(
   await saveCustomExercises(next);
 }
 
-// ---------- Temp buffer: last added custom exercise ----------
 export async function setLastAddedExerciseTemp(ex: Exercise) {
   await AsyncStorage.setItem(KEY_LAST_ADDED_EX, JSON.stringify(ex));
 }
@@ -69,7 +66,6 @@ export async function popLastAddedExerciseTemp(): Promise<Exercise | null> {
   }
 }
 
-// ---------- Flags: Confirm & Cancel (Train czyta je onFocus) ----------
 export async function setConfirmDone(workoutId: string) {
   await AsyncStorage.setItem(KEY_CONFIRM_DONE, workoutId);
 }

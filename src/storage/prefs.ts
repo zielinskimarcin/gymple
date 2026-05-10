@@ -1,11 +1,10 @@
-// src/storage/prefs.ts
 import { supabase } from "../lib/supabase";
 
 export type AppPrefs = {
   firstName: string | null;
   avatarColor: string | null;
   uiTheme: "system" | "light" | "dark";
-  uiLanguage: string;         // "en" | "pl" | ...
+  uiLanguage: string;
   unitsWeight: "kg" | "lb";
   marketingOptIn: boolean;
   crashReporting: boolean;

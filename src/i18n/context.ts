@@ -1,13 +1,12 @@
-// src/i18n/context.ts
 import React from "react";
 
 export type SupportedLang = "en" | "pl" | "it";
 export type PreferredLang = "system" | SupportedLang;
 
-// prosta struktura słownika: gniazdka i/lub kropkowane klucze
-export type Dict = Record<string, string | Dict>;
+export interface Dict {
+  [key: string]: string | Dict;
+}
 
-/** Bezpieczne pobieranie wartości z kropkowanego klucza, np. "settings.title" */
 export function getFromDict(dict: Dict, key: string): string | undefined {
   const parts = key.split(".");
   let cur: any = dict;
@@ -18,7 +17,6 @@ export function getFromDict(dict: Dict, key: string): string | undefined {
   return typeof cur === "string" ? cur : undefined;
 }
 
-/** Mapowanie języka systemowego na nasze wspierane */
 export function mapSystemToSupported(code?: string): SupportedLang {
   if (!code) return "en";
   const lower = code.toLowerCase();
@@ -27,26 +25,24 @@ export function mapSystemToSupported(code?: string): SupportedLang {
   return "en";
 }
 
-/** Klucze do lokalnego cache (AsyncStorage) */
-export const I18N_PREF_KEY = "i18n:pref";      // "system" | "en" | "pl"
-export const I18N_RESOLVED_KEY = "i18n:active"; // "en" | "pl"
+export const I18N_PREF_KEY = "i18n:pref";
+export const I18N_RESOLVED_KEY = "i18n:active";
 
-/** API kontekstu i18n */
 export type I18nContextValue = {
-  lang: SupportedLang;                    // rozstrzygnięty język (np. "pl")
-  pref: PreferredLang;                    // preferencja użytkownika (np. "system")
-  t: (key: string) => string;             // tłumaczenie
-  setPreferredLanguage: (p: PreferredLang) => Promise<void> | void; // zmiana preferencji
+  lang: SupportedLang;
+  pref: PreferredLang;
+  t: (key: string) => string;
+  setPreferredLanguage: (p: PreferredLang) => Promise<void> | void;
 };
 
 export const I18nContext = React.createContext<I18nContextValue | undefined>(undefined);
 
-/** Hook wygodny do użycia w komponentach */
-export function useI18n() {
+export function useI18n(): I18nContextValue {
   const ctx = React.useContext(I18nContext);
-  if (!ctx) {
-    // Świadomie nie rzucamy błędu – pozwala używać ekranu zanim Provider się podłączy
-    // ale zachęcam, aby Provider był wysoko (np. w App.tsx) – wtedy ctx zawsze istnieje.
-  }
-  return ctx;
+  return ctx ?? {
+    lang: "en",
+    pref: "system",
+    t: (key: string) => key,
+    setPreferredLanguage: () => {},
+  };
 }

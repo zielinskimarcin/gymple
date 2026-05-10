@@ -1,4 +1,3 @@
-// src/storage/customExercises.ts
 import { supabase } from "../lib/supabase";
 
 export type Exercise = {
@@ -9,17 +8,18 @@ export type Exercise = {
   createdAt?: number;
 };
 
-// === READ: wszystkie custom usera ===
 export async function fetchCustomExercises(): Promise<Exercise[]> {
+  const { data: u } = await supabase.auth.getUser();
+  const userId = u?.user?.id;
+  if (!userId) return [];
+
   const { data, error } = await supabase
     .from("custom_exercises")
     .select("id,name,muscle_group,created_at")
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (error) {
-    console.warn("[fetchCustomExercises]", error.message);
-    return [];
-  }
+  if (error) return [];
   return (data || []).map((r) => ({
     id: r.id,
     name: r.name,
@@ -29,7 +29,6 @@ export async function fetchCustomExercises(): Promise<Exercise[]> {
   }));
 }
 
-// === CREATE: jedno ćwiczenie ===
 export async function createCustomExercise(name: string, muscleGroup: string) {
   const { data: u } = await supabase.auth.getUser();
   const userId = u?.user?.id;
@@ -40,7 +39,6 @@ export async function createCustomExercise(name: string, muscleGroup: string) {
 
   const { error } = await supabase.from("custom_exercises").insert(row);
   if (error) {
-    // 23505 = unique_violation (mamy unique (user_id, lower(name)))
     if ((error as any).code === "23505") return { ok: false, error: "This exercise already exists." };
     return { ok: false, error: error.message };
   }
@@ -51,7 +49,6 @@ export async function createCustomExercise(name: string, muscleGroup: string) {
   };
 }
 
-// === UPDATE: po id ===
 export async function updateCustomExercise(id: string, patch: Partial<Pick<Exercise, "name" | "muscleGroup">>) {
   const { data: u } = await supabase.auth.getUser();
   const userId = u?.user?.id;
@@ -65,7 +62,6 @@ export async function updateCustomExercise(id: string, patch: Partial<Pick<Exerc
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-// === DELETE: po id ===
 export async function deleteCustomExercise(id: string) {
   const { data: u } = await supabase.auth.getUser();
   const userId = u?.user?.id;

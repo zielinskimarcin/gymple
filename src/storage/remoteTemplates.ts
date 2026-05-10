@@ -14,7 +14,6 @@ function genId(prefix = "t_") {
   return prefix + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-/** Public defaults (read-only) */
 export async function listDefaultTemplates(): Promise<TemplateRow[]> {
   const { data, error } = await supabase
     .from("default_templates")
@@ -29,11 +28,12 @@ export async function listDefaultTemplates(): Promise<TemplateRow[]> {
   }));
 }
 
-/** User templates (CRUD) */
 export async function listUserTemplates(): Promise<TemplateRow[]> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("templates")
     .select("id,name,icon,exercise_ids,created_at,updated_at")
+    .eq("user_id", uid)
     .order("updated_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map((r: any) => ({
@@ -47,10 +47,12 @@ export async function listUserTemplates(): Promise<TemplateRow[]> {
 }
 
 export async function getUserTemplateById(id: string): Promise<TemplateRow | null> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("templates")
     .select("id,name,icon,exercise_ids,created_at,updated_at")
     .eq("id", id)
+    .eq("user_id", uid)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -64,7 +66,6 @@ export async function getUserTemplateById(id: string): Promise<TemplateRow | nul
   };
 }
 
-/** Create / Update (upsert by id) */
 export async function upsertUserTemplate(input: {
   id?: string;
   name: string;
@@ -86,7 +87,6 @@ export async function upsertUserTemplate(input: {
     { onConflict: "id" }
   );
   if (error) {
-    // UNIQUE (user_id, lower(name)) -> 23505
     if ((error as any).code === "23505") throw new Error("DUPLICATE_NAME");
     throw error;
   }
@@ -94,6 +94,7 @@ export async function upsertUserTemplate(input: {
 }
 
 export async function deleteUserTemplate(id: string) {
-  const { error } = await supabase.from("templates").delete().eq("id", id);
+  const uid = await getUserId();
+  const { error } = await supabase.from("templates").delete().eq("id", id).eq("user_id", uid);
   if (error) throw error;
 }
