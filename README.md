@@ -1,8 +1,8 @@
-# Gymple - iOS Workout Tracker
+# Gymple - iOS Mobile Application
 
-Gymple is a clean iOS workout tracking app built with React Native, Expo, Supabase and RevenueCat.
+Gymple is a mobile workout tracking app built with React Native.
 
-The app helps users log workouts, manage custom exercises, reuse training templates and review workout history without unnecessary friction. It has been tested through Apple TestFlight and submitted for App Store review.
+The app helps users log workouts, manage custom exercises, reuse training templates and review workout history. It has been tested through Apple TestFlight and submitted for App Store review.
 
 ## Previews
 
@@ -103,9 +103,3 @@ RevenueCat/App Store identifiers used by the app:
 
 Additional release/setup notes are available in the [docs](docs) directory.
 
-## Security
-
-- `.env` is ignored by git
-- `.env.example` contains placeholders only
-- Supabase anon/publishable keys are public client-side keys
-- Supabase service-role keys must stay server-side only
