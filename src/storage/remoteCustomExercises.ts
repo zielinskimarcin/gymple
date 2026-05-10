@@ -9,15 +9,33 @@ export type RemoteExercise = {
   createdAt: number;
 };
 
-// prosty generator id tekstowego (zgodny z Twoim stylem “c_...”)
 function genId() {
   return "c_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function normalizeName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+async function customExerciseNameExists(userId: string, name: string, exceptId?: string) {
+  const normalized = normalizeName(name);
+  if (!normalized) return false;
+
+  const { data, error } = await supabase
+    .from("custom_exercises")
+    .select("id,name")
+    .eq("user_id", userId);
+
+  if (error) return false;
+  return (data ?? []).some((row) => row.id !== exceptId && normalizeName(row.name) === normalized);
+}
+
 export async function listCustomExercises(): Promise<RemoteExercise[]> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("custom_exercises")
     .select("id,name,muscle_group,created_at")
+    .eq("user_id", uid)
     .order("created_at", { ascending: false });
   if (error) throw error;
 
@@ -31,10 +49,12 @@ export async function listCustomExercises(): Promise<RemoteExercise[]> {
 }
 
 export async function getCustomExerciseById(id: string): Promise<RemoteExercise | null> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("custom_exercises")
     .select("id,name,muscle_group,created_at")
     .eq("id", id)
+    .eq("user_id", uid)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
@@ -49,6 +69,10 @@ export async function getCustomExerciseById(id: string): Promise<RemoteExercise 
 
 export async function createCustomExercise(name: string, muscleGroup: string): Promise<RemoteExercise> {
   const uid = await getUserId();
+  if (await customExerciseNameExists(uid, name)) {
+    throw new Error("DUPLICATE_NAME");
+  }
+
   const id = genId();
 
   const { data, error } = await supabase
@@ -63,7 +87,6 @@ export async function createCustomExercise(name: string, muscleGroup: string): P
     .single();
 
   if (error) {
-    // 23505 = unique_violation (tu: (user_id, lower(name)))
     if ((error as any).code === "23505") {
       throw new Error("DUPLICATE_NAME");
     }
@@ -80,11 +103,16 @@ export async function createCustomExercise(name: string, muscleGroup: string): P
 }
 
 export async function updateCustomExerciseRemote(id: string, patch: { name?: string; muscleGroup?: string }) {
+  const uid = await getUserId();
+  if (patch.name != null && await customExerciseNameExists(uid, patch.name, id)) {
+    throw new Error("DUPLICATE_NAME");
+  }
+
   const upd: any = {};
   if (patch.name != null) upd.name = patch.name;
   if (patch.muscleGroup != null) upd.muscle_group = patch.muscleGroup;
 
-  const { error } = await supabase.from("custom_exercises").update(upd).eq("id", id);
+  const { error } = await supabase.from("custom_exercises").update(upd).eq("id", id).eq("user_id", uid);
   if (error) {
     if ((error as any).code === "23505") throw new Error("DUPLICATE_NAME");
     throw error;
@@ -92,6 +120,7 @@ export async function updateCustomExerciseRemote(id: string, patch: { name?: str
 }
 
 export async function deleteCustomExerciseRemote(id: string) {
-  const { error } = await supabase.from("custom_exercises").delete().eq("id", id);
+  const uid = await getUserId();
+  const { error } = await supabase.from("custom_exercises").delete().eq("id", id).eq("user_id", uid);
   if (error) throw error;
 }

@@ -1,12 +1,14 @@
-// src/lib/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
+const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-// Fallback on web (SecureStore doesn’t work in browser)
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error("Missing Supabase environment variables.");
+}
+
 const WebStorageAdapter = {
   getItem: async (key: string) => {
     try { return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null; }
@@ -22,7 +24,6 @@ const WebStorageAdapter = {
   },
 };
 
-// Native (iOS/Android)
 const SecureStoreAdapter = {
   getItem: async (key: string) => {
     try { return (await SecureStore.getItemAsync(key)) ?? null; } catch { return null; }
@@ -36,18 +37,27 @@ const SecureStoreAdapter = {
 };
 
 const storage = Platform.OS === "web" ? (WebStorageAdapter as any) : (SecureStoreAdapter as any);
+const authStorageKey = `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage,
+    storageKey: authStorageKey,
     autoRefreshToken: true,
     persistSession: true,
-    // IMPORTANT for OAuth:
     flowType: "pkce",
-    detectSessionInUrl: true,   // <- was false
+    detectSessionInUrl: true,
   },
 });
 
-// debug logs
-console.log("[supabase] url:", SUPABASE_URL);
-console.log("[supabase] platform:", Platform.OS);
+export async function clearSupabaseAuthStorage() {
+  await Promise.all([
+    storage.removeItem(authStorageKey),
+    storage.removeItem(`${authStorageKey}-code-verifier`),
+    storage.removeItem(`${authStorageKey}-user`),
+  ]);
+}
+
+export function getSupabaseFunctionsUrl() {
+  return `${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1`;
+}

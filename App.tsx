@@ -1,51 +1,62 @@
-import React from "react";
+import React, { useEffect, useState, useCallback } from "react";
+import { View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { NavigationContainer, DarkTheme, Theme } from "@react-navigation/native";
+import * as SplashScreen from "expo-splash-screen";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import { AppNavigator } from "./src/navigation/AppNavigator";
-import { AuthProvider, useAuth } from "./src/auth/AuthProvider";
-import { AuthStack } from "./src/auth/AuthStack";
-import { OnboardingNavigator } from "./src/onboarding/OnboardingNavigator";
-
+import { AuthProvider } from "./src/auth/AuthProvider";
+import { PremiumProvider } from "./src/premium/PremiumProvider";
+import { I18nProvider } from "./src/i18n";
 import { colors } from "./src/theme";
+import { AppSplash } from "./src/splash/AppSplash";
+import { RootNavigator } from "./src/navigation/RootNavigator";
+import { configureRevenueCat } from "./src/premium/revenuecat";
 
-const appTheme: Theme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    background: colors.bg,
-    card: colors.card,
-    text: colors.text,
-    border: colors.border,
-    primary: colors.accent,
-    notification: colors.accent,
-  },
-};
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
-function GuardedRoot() {
-  const { session, loading, needsOnboarding } = useAuth();
+export default function App() {
+  const MIN_SPLASH_MS = 2200;
+  const [animDone, setAnimDone] = useState(false);
+  const [minTimeDone, setMinTimeDone] = useState(false);
+  const [navReady, setNavReady] = useState(false);
 
-  // Minimal loading guard (no extra side-effects)
-  if (loading) {
-    return <StatusBar style="light" />;
+  useEffect(() => {
+    configureRevenueCat();
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => setMinTimeDone(true), MIN_SPLASH_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    setNavReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (animDone && minTimeDone && navReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [animDone, minTimeDone, navReady]);
+
+  const handleSplashAnimComplete = useCallback(() => setAnimDone(true), []);
+
+  if (!(animDone && minTimeDone)) {
+    return <AppSplash durationMs={MIN_SPLASH_MS} onComplete={handleSplashAnimComplete} />;
   }
 
   return (
-    <NavigationContainer theme={appTheme}>
-      <StatusBar style="light" />
-      {session ? (
-        needsOnboarding ? <OnboardingNavigator /> : <AppNavigator />
-      ) : (
-        <AuthStack initialRouteName="SignUp" />
-      )}
-    </NavigationContainer>
-  );
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <GuardedRoot />
-    </AuthProvider>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <SafeAreaProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <PremiumProvider freeLimit={5}>
+              <StatusBar style="light" />
+              <RootNavigator />
+            </PremiumProvider>
+          </AuthProvider>
+        </I18nProvider>
+      </SafeAreaProvider>
+    </View>
   );
 }

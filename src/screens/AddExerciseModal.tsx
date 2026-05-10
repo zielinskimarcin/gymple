@@ -8,47 +8,62 @@ import type { Exercise } from "../types";
 
 import { createCustomExercise } from "../storage/customExercises";
 import { setLastAddedExerciseTemp } from "../storage/lastAdded";
+import { useI18n } from "../i18n";
+import { MUSCLE_GROUPS } from "../constants/exercises";
+import { formatMuscleGroup } from "../i18n/labels";
 
-const PRESET_GROUPS = ["Chest", "Back", "Legs", "Shoulders", "Arms", "Core", "Full Body", "Cardio", "Other"];
+const PRESET_GROUPS = MUSCLE_GROUPS;
 
 export const AddExerciseModal = () => {
   const nav = useNavigation();
+  const i = useI18n();
+  const t = i.t;
   const [name, setName] = useState("");
   const [group, setGroup] = useState<string>("Chest");
   const [customGroup, setCustomGroup] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function save() {
+    if (busy) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const mg = group === "Other" ? (customGroup.trim() || "Other") : group;
 
-    const res = await createCustomExercise(trimmed, mg);
-    if (!res.ok) {
-      Alert.alert("Cannot save", res.error || "Unknown error");
-      return;
-    }
-    // daj znać Template Editorowi / TrainScreenowi
-    await setLastAddedExerciseTemp({
-      id: res.ex!.id,
-      name: res.ex!.name,
-      muscleGroup: res.ex!.muscleGroup,
-      isCustom: true,
-      createdAt: Date.now(),
-    } as Exercise as any);
+    setBusy(true);
+    try {
+      const res = await createCustomExercise(trimmed, mg);
+      if (!res.ok) {
+        const message = res.error?.toLowerCase().includes("exists")
+          ? t("edit_exercise.duplicate")
+          : res.error || t("add_exercise.save_failed");
+        Alert.alert(t("common.error"), message);
+        return;
+      }
 
-    // @ts-ignore
-    nav.goBack();
+      await setLastAddedExerciseTemp({
+        id: res.ex!.id,
+        name: res.ex!.name,
+        muscleGroup: res.ex!.muscleGroup,
+        isCustom: true,
+        createdAt: Date.now(),
+      } as Exercise as any);
+
+      nav.goBack();
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <View style={{ padding: spacing(2), gap: spacing(2) }}>
-        <Text style={{ color: colors.text, fontSize: 20, fontWeight: "700" }}>Add Exercise</Text>
+        <Text style={{ color: colors.text, fontSize: 20, fontWeight: "700" }}>
+  {t("add_exercise.title")}
+</Text>
 
         <View>
-          <Text style={s.label}>Name</Text>
-          <TextInput
-            placeholder="e.g. Bulgarian Split Squat"
+          <Text style={s.label}>{t("add_exercise.name")}</Text>
+          <TextInput placeholder={t("add_exercise.placeholder_name")}
             placeholderTextColor={colors.subtext}
             value={name}
             onChangeText={setName}
@@ -57,7 +72,7 @@ export const AddExerciseModal = () => {
         </View>
 
         <View>
-          <Text style={s.label}>Muscle group</Text>
+          <Text style={s.label}>{t("add_exercise.muscle_group")}</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {PRESET_GROUPS.map((g) => {
               const selected = group === g;
@@ -68,7 +83,9 @@ export const AddExerciseModal = () => {
                   onPress={() => setGroup(g)}
                   style={[s.chip, selected && { backgroundColor: colors.accent }]}
                 >
-                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>{g}</Text>
+                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>
+                    {formatMuscleGroup(t, g)}
+                  </Text>
                   {isOther && (
                     <Ionicons
                       name="create-outline"
@@ -82,8 +99,8 @@ export const AddExerciseModal = () => {
             })}
           </View>
           {group === "Other" && (
-            <TextInput
-              placeholder="Custom group (e.g. Glutes)"
+            <TextInput 
+              placeholder={t("add_exercise.placeholder_custom_group")}
               placeholderTextColor={colors.subtext}
               value={customGroup}
               onChangeText={setCustomGroup}
@@ -92,8 +109,8 @@ export const AddExerciseModal = () => {
           )}
         </View>
 
-        <TouchableOpacity style={s.save} onPress={save}>
-          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>Save</Text>
+        <TouchableOpacity style={[s.save, busy && { opacity: 0.6 }]} onPress={save} disabled={busy}>
+          <Text style={{ color: "#0E0E10", fontWeight: "800" }}>{t("common.save")}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

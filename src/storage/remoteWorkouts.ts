@@ -42,20 +42,24 @@ export async function saveWorkoutRemote(input: Omit<WorkoutDTO, "id">): Promise<
 }
 
 export async function updateWorkoutNameRemote(id: string, name: string) {
-  const { error } = await supabase.from("workouts").update({ name }).eq("id", id);
+  const uid = await getUserId();
+  const { error } = await supabase.from("workouts").update({ name }).eq("id", id).eq("user_id", uid);
   if (error) throw error;
 }
 
 export async function deleteWorkoutRemote(id: string) {
-  const { error } = await supabase.from("workouts").delete().eq("id", id);
+  const uid = await getUserId();
+  const { error } = await supabase.from("workouts").delete().eq("id", id).eq("user_id", uid);
   if (error) throw error;
 }
 
 export async function getWorkoutRemote(id: string): Promise<WorkoutDTO | null> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("workouts")
     .select("id,name,started_at,duration_sec,status,payload,created_at,updated_at")
     .eq("id", id)
+    .eq("user_id", uid)
     .maybeSingle();
 
   if (error) throw error;
@@ -74,9 +78,11 @@ export async function getWorkoutRemote(id: string): Promise<WorkoutDTO | null> {
 }
 
 export async function listWorkoutsRemote(): Promise<WorkoutDTO[]> {
+  const uid = await getUserId();
   const { data, error } = await supabase
     .from("workouts")
     .select("id,name,started_at,duration_sec,status,payload")
+    .eq("user_id", uid)
     .order("started_at", { ascending: false });
 
   if (error) throw error;
