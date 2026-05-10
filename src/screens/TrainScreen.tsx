@@ -49,8 +49,13 @@ const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 const FEATURED_DEFAULT_IDS = ["bench", "deadlift", "squat", "pullup"] as const;
 
 function plural(n: number, one: string, many: string) { return `${n} ${n === 1 ? one : many}`; }
-function ordinal(n: number) { const s=["th","st","nd","rd"],v=n%100; return n + (s[(v-20)%10] || s[v] || s[0]); }
-function hoursAgo(iso: string) { const h=Math.floor((Date.now()-new Date(iso).getTime())/36e5); return h<24?`${h}h ago`:`${Math.floor(h/24)} days ago`; }
+function formatAge(iso: string, t: (key: string) => string) {
+  const h = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 36e5));
+  if (h < 1) return t("train.time_just_now");
+  if (h < 24) return `${h}${t("train.time_h")} ${t("train.time_ago")}`;
+  const d = Math.floor(h / 24);
+  return plural(d, t("train.day_ago"), t("train.days_ago"));
+}
 function startOfWeek(d=new Date()){const day=d.getDay();const diff=(day===0?-6:1)-day;const res=new Date(d);res.setDate(d.getDate()+diff);res.setHours(0,0,0,0);return res;}
 function autoColorFromString(s: string){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;const hue=Math.abs(h)%360;return `hsl(${hue},55%,45%)`;}
 function hexToRgba(hex: string, alpha: number){ const h = hex.replace("#",""); const b = h.length===3? h.split("").map(c=>c+c).join(""):h; const r=parseInt(b.slice(0,2),16), g=parseInt(b.slice(2,4),16), bl=parseInt(b.slice(4,6),16); return `rgba(${r},${g},${bl},${alpha})`; }
@@ -406,7 +411,7 @@ const meta = progressMeta(thisWeekCount, goal);
     <View style={st.lastCard}>
       <View style={st.lastHeaderRow}>
         <Text style={st.miniLabel}>{t("train.last_card_header")}</Text>
-        <Text style={st.lastAgo}>{hoursAgo(lastWorkout.started_at)}</Text>
+        <Text style={st.lastAgo}>{formatAge(lastWorkout.started_at, t)}</Text>
       </View>
 
       <Text style={st.lastTitle} numberOfLines={1}>{lastWorkout.name || t("train.default_workout_name")}</Text>

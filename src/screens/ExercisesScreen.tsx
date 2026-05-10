@@ -18,21 +18,10 @@ import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useI18n } from "../i18n";
+import { DEFAULT_EXERCISES, MUSCLE_GROUPS } from "../constants/exercises";
+import { formatMuscleGroup } from "../i18n/labels";
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
-
-const DEFAULTS: Exercise[] = [
-  { id: "bench", name: "Bench Press", muscleGroup: "Chest" },
-  { id: "incline_db", name: "Incline DB Press", muscleGroup: "Chest" },
-  { id: "row", name: "Barbell Row", muscleGroup: "Back" },
-  { id: "pullup", name: "Pull-Up", muscleGroup: "Back" },
-  { id: "squat", name: "Back Squat", muscleGroup: "Legs" },
-  { id: "rdl", name: "Romanian Deadlift", muscleGroup: "Legs" },
-  { id: "ohp", name: "Overhead Press", muscleGroup: "Shoulders" },
-  { id: "curl", name: "Barbell Curl", muscleGroup: "Arms" },
-  { id: "pushdown", name: "Triceps Pushdown", muscleGroup: "Arms" },
-  { id: "plank", name: "Plank", muscleGroup: "Core" },
-];
 
 type GroupRow =
   | { type: "header"; title: string }
@@ -123,7 +112,7 @@ export const ExercisesScreen = () => {
     loadProfile();
   }, [focused, loadStats, loadProfile]);
 
-  const all = useMemo(() => [...DEFAULTS, ...custom], [custom]);
+  const all = useMemo(() => [...DEFAULT_EXERCISES, ...custom], [custom]);
 
   const groups = useMemo(() => {
     const by = new Map<string, Exercise[]>();
@@ -132,7 +121,12 @@ export const ExercisesScreen = () => {
       by.get(ex.muscleGroup)!.push(ex);
     }
     return Array.from(by.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
+      .sort((a, b) => {
+        const ai = MUSCLE_GROUPS.indexOf(a[0] as any);
+        const bi = MUSCLE_GROUPS.indexOf(b[0] as any);
+        if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        return a[0].localeCompare(b[0]);
+      })
       .map(([title, data]) => ({ title, data }));
   }, [all]);
 
@@ -201,7 +195,7 @@ export const ExercisesScreen = () => {
                   onPress={() => setCollapsed((c) => ({ ...c, [item.title]: !c[item.title] }))}
                   style={styles.headerRow}
                 >
-                  <Text style={styles.section}>{item.title}</Text>
+                  <Text style={styles.section}>{formatMuscleGroup(t, item.title)}</Text>
                   <Text style={styles.collapseHint}>{collapsed[item.title] ? "▸" : "▾"}</Text>
                 </TouchableOpacity>
               ) : (

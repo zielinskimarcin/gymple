@@ -14,8 +14,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { supabase } from "../lib/supabase";
 import { setLastAddedExerciseTemp } from "../storage/lastAdded";
-import { DEFAULT_EXERCISES } from "../constants/exercises";
+import { DEFAULT_EXERCISES, MUSCLE_GROUPS } from "../constants/exercises";
 import { useI18n } from "../i18n";
+import { formatMuscleGroup } from "../i18n/labels";
 
 type Exercise = {
   id: string;
@@ -57,9 +58,17 @@ export const SearchExerciseModal = () => {
 
         if (e2) throw e2;
 
-        const d: Exercise[] = e1
-          ? DEFAULT_EXERCISES.map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscleGroup }))
+        const localDefaults = DEFAULT_EXERCISES.map((x) => ({
+          id: x.id,
+          name: x.name,
+          muscleGroup: x.muscleGroup,
+        }));
+        const remoteDefaults: Exercise[] = e1
+          ? []
           : (defs ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group })) ?? [];
+        const defaultsById = new Map(localDefaults.map((x) => [x.id, x]));
+        remoteDefaults.forEach((x) => defaultsById.set(x.id, x));
+        const d = Array.from(defaultsById.values());
         const c: Exercise[] =
           (cust ?? []).map((x) => ({ id: x.id, name: x.name, muscleGroup: x.muscle_group, isCustom: true })) ?? [];
 
@@ -94,7 +103,12 @@ export const SearchExerciseModal = () => {
         if (!map.has(g)) map.set(g, []);
         map.get(g)!.push(ex);
       }
-      const groups = Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      const groups = Array.from(map.entries()).sort((a, b) => {
+        const ai = MUSCLE_GROUPS.indexOf(a[0] as any);
+        const bi = MUSCLE_GROUPS.indexOf(b[0] as any);
+        if (ai !== -1 || bi !== -1) return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        return a[0].localeCompare(b[0]);
+      });
       for (const [title, list] of groups) {
         out.push({ type: "header", key: `h_${title}`, title });
         for (const ex of list) out.push({ type: "item", key: `i_${ex.id}`, ex });
@@ -175,13 +189,15 @@ export const SearchExerciseModal = () => {
           renderItem={({ item }) =>
             item.type === "header" ? (
               <View style={s.headerRow}>
-                <Text style={s.headerTxt}>{item.title}</Text>
+                <Text style={s.headerTxt}>
+                  {sortMode === "group" ? formatMuscleGroup(t, item.title) : item.title}
+                </Text>
               </View>
             ) : (
               <TouchableOpacity style={s.row} onPress={() => pick(item.ex)}>
                 <View>
                   <Text style={s.name}>{item.ex.name}</Text>
-                  <Text style={s.sub}>{item.ex.muscleGroup}</Text>
+                  <Text style={s.sub}>{formatMuscleGroup(t, item.ex.muscleGroup)}</Text>
                 </View>
                 {item.ex.isCustom ? <Text style={s.badge}>{t("search_exercise.custom_badge")}</Text> : null}
               </TouchableOpacity>

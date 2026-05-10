@@ -13,6 +13,23 @@ function genId() {
   return "c_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+function normalizeName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+async function customExerciseNameExists(userId: string, name: string, exceptId?: string) {
+  const normalized = normalizeName(name);
+  if (!normalized) return false;
+
+  const { data, error } = await supabase
+    .from("custom_exercises")
+    .select("id,name")
+    .eq("user_id", userId);
+
+  if (error) return false;
+  return (data ?? []).some((row) => row.id !== exceptId && normalizeName(row.name) === normalized);
+}
+
 export async function listCustomExercises(): Promise<RemoteExercise[]> {
   const uid = await getUserId();
   const { data, error } = await supabase
@@ -52,6 +69,10 @@ export async function getCustomExerciseById(id: string): Promise<RemoteExercise 
 
 export async function createCustomExercise(name: string, muscleGroup: string): Promise<RemoteExercise> {
   const uid = await getUserId();
+  if (await customExerciseNameExists(uid, name)) {
+    throw new Error("DUPLICATE_NAME");
+  }
+
   const id = genId();
 
   const { data, error } = await supabase
@@ -83,6 +104,10 @@ export async function createCustomExercise(name: string, muscleGroup: string): P
 
 export async function updateCustomExerciseRemote(id: string, patch: { name?: string; muscleGroup?: string }) {
   const uid = await getUserId();
+  if (patch.name != null && await customExerciseNameExists(uid, patch.name, id)) {
+    throw new Error("DUPLICATE_NAME");
+  }
+
   const upd: any = {};
   if (patch.name != null) upd.name = patch.name;
   if (patch.muscleGroup != null) upd.muscle_group = patch.muscleGroup;

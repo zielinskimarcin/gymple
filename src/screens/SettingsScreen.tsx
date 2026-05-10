@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert,
-  LayoutAnimation, Platform, UIManager,
+  LayoutAnimation, Platform, UIManager, Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -19,6 +19,9 @@ import { useI18n } from "../i18n";
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? "";
+const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? "";
 
 export const SettingsScreen = () => {
   const nav = useNavigation<any>();
@@ -153,6 +156,19 @@ export const SettingsScreen = () => {
       Alert.alert(t("common.error"), e?.message ?? t("settings.lang_update_failed"));
     } finally {
       setChangingLang(false);
+    }
+  }
+
+  async function openLegalUrl(url: string) {
+    if (!url) {
+      Alert.alert(t("common.error"), t("premium.legal_url_missing"));
+      return;
+    }
+
+    try {
+      await Linking.openURL(url);
+    } catch (e: any) {
+      Alert.alert(t("common.error"), e?.message ?? t("premium.legal_open_failed"));
     }
   }
 
@@ -315,6 +331,8 @@ async function deleteAccountNow() {
         </Section>
 
         <Section title={t("settings.data_privacy")}>
+          <Row onPress={() => openLegalUrl(PRIVACY_URL)} leftIcon="shield-checkmark-outline" label={t("premium.privacy")} />
+          <Row onPress={() => openLegalUrl(TERMS_URL)} leftIcon="document-text-outline" label={t("premium.terms")} />
           <Row onPress={onResetAllData} leftIcon="reload-circle-outline" label={t("settings.reset_all")} />
           <Row onPress={confirmDeleteAccount} leftIcon="trash-outline" label={t("settings.delete_account")} />
         </Section>

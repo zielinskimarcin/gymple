@@ -8,8 +8,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { deleteCustomExerciseRemote, getCustomExerciseById, updateCustomExerciseRemote } from "../storage/remoteCustomExercises";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useI18n } from "../i18n";
+import { MUSCLE_GROUPS } from "../constants/exercises";
+import { formatMuscleGroup } from "../i18n/labels";
 
-const PRESET_GROUPS = ["Chest","Back","Legs","Shoulders","Arms","Core","Full Body","Cardio","Other"];
+const PRESET_GROUPS = MUSCLE_GROUPS;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 export const EditCustomExerciseModal = () => {
@@ -102,7 +104,9 @@ export const EditCustomExerciseModal = () => {
                       style={{ marginRight: 6 }}
                     />
                   )}
-                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>{g}</Text>
+                  <Text style={[s.chipTxt, selected && { color: "#0E0E10" }]}>
+                    {formatMuscleGroup(t, g)}
+                  </Text>
                 </TouchableOpacity>
               );
             })}
