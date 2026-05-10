@@ -81,10 +81,11 @@ export const PremiumScreen: React.FC = () => {
       }
 
       await Purchases.showManageSubscriptions();
+      await refreshPremium();
     } catch (e: any) {
       Alert.alert(t("common.error"), e?.message ?? t("premium.manage_failed"));
     }
-  }, [t]);
+  }, [refreshPremium, t]);
 
   return (
     <SafeAreaView style={s.safe}>

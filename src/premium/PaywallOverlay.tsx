@@ -88,9 +88,11 @@ function getProductPriceString(product: PurchasesStoreProduct | null): string {
 }
 
 function getPackagePriceString(pack: PurchasesPackage | null, fallbackProduct: PurchasesStoreProduct | null): string {
-  if (!pack) return getProductPriceString(fallbackProduct);
+  const fallbackPrice = getProductPriceString(fallbackProduct);
+  if (fallbackPrice !== "—") return fallbackPrice;
+  if (!pack) return "—";
   const product = pack.product as any;
-  return String(product?.priceString ?? product?.price ?? getProductPriceString(fallbackProduct));
+  return String(product?.priceString ?? product?.price ?? "—");
 }
 
 export const PaywallOverlay: React.FC<Props> = ({ visible, source = "upgrade", onClose, onUnlock }) => {
