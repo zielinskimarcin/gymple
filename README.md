@@ -91,6 +91,17 @@ Prices are loaded at runtime from RevenueCat/App Store. They will not appear in 
 - [App Store review notes](docs/APP_STORE_REVIEW_NOTES.md)
 - [Manual setup checklist](docs/MANUAL_SETUP.md)
 
+## Legal Pages
+
+The `docs` directory includes static GitHub Pages files:
+
+- `privacy.html`
+- `terms.html`
+- `support.html`
+- `index.html`
+
+The legal/support pages currently use `marcinzielinskii@icloud.com` as the support email. Then configure GitHub Pages to deploy from the `main` branch and `/docs` folder.
+
 ## Security Notes
 
 - `.env` is ignored by git.
