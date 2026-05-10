@@ -1,110 +1,111 @@
-# Gymple
+# Gymple - iOS Workout Tracker
 
-Gymple is a mobile gym tracker built with Expo and React Native. It supports workout logging, templates, custom exercises, history, account sync through Supabase, and Premium unlocks through RevenueCat/App Store in-app purchases.
+Gymple is a clean iOS workout tracking app built with React Native, Expo, Supabase and RevenueCat.
+
+The app helps users log workouts, manage custom exercises, reuse training templates and review workout history without unnecessary friction. It has been tested through Apple TestFlight and submitted for App Store review.
+
+## Previews
+
+| Train | Workout Details | History |
+| --- | --- | --- |
+| <img src="docs/readme/01-train.png" width="220" alt="Gymple train screen" /> | <img src="docs/readme/02-workout-details.png" width="220" alt="Gymple workout details screen" /> | <img src="docs/readme/03-history.png" width="220" alt="Gymple history screen" /> |
+
+| Exercises | Templates | Premium |
+| --- | --- | --- |
+| <img src="docs/readme/04-exercises.png" width="220" alt="Gymple exercises screen" /> | <img src="docs/readme/05-templates.png" width="220" alt="Gymple templates screen" /> | <img src="docs/readme/06-premium.png" width="220" alt="Gymple premium screen" /> |
+
+## Overview
+
+Gymple was built as an end-to-end mobile product, covering the full flow from authentication and workout data storage to subscriptions, privacy pages and App Store submission.
+
+The goal was to keep workout logging fast and focused while still supporting the features expected from a real training app: account sync, editable history, custom exercises, reusable templates and premium limits.
+
+## Core Functionality
+
+- Workout logging with exercises, sets, reps and weight
+- Workout history with saved training sessions
+- Custom exercise library with duplicate-name protection
+- Reusable workout templates
+- Email/password authentication, Google sign-in and Sign in with Apple
+- Account sync through Supabase
+- Premium unlocks through Apple In-App Purchases and RevenueCat
+- Account deletion flow backed by a Supabase Edge Function
+- Localized UI in English, Polish and Italian
+- Public Privacy Policy, Terms of Use and Support pages
+
+## Product & Engineering Highlights
+
+- Built and shipped as a production-oriented iOS app, not just a prototype
+- Supabase Auth and PostgreSQL with Row Level Security for user-owned data
+- Secure account deletion using a server-side Supabase Edge Function
+- Apple In-App Purchase integration through RevenueCat entitlements
+- TestFlight validation before App Store submission
+- App Store-ready privacy, terms and support documentation
+- TypeScript codebase with focused release checks
+
+## Technical Architecture
+
+- **Mobile client:** React Native, Expo and TypeScript
+- **Authentication:** Supabase Auth with email/password, Google and Apple sign-in
+- **Database:** Supabase PostgreSQL with user-scoped workout, template and exercise data
+- **Serverless backend:** Supabase Edge Function for account deletion
+- **Purchases:** RevenueCat with Apple In-App Purchases
+- **Legal pages:** Static GitHub Pages files served from the `docs` directory
 
 ## Tech Stack
 
-- Expo SDK 54
-- React Native 0.81
-- React 19
-- Supabase Auth, Postgres, Row Level Security, Edge Functions
-- RevenueCat for App Store purchases
+- React Native
+- Expo
 - TypeScript
+- Supabase Auth
+- Supabase PostgreSQL
+- Supabase Edge Functions
+- RevenueCat
+- Apple In-App Purchases
+- iOS, TestFlight and App Store Connect
 
-## Features
+## Status
 
-- Email/password, Google OAuth, and Sign in with Apple
-- Onboarding with profile preferences
-- Workout creation, editing, deletion, and history
-- Template selection and custom templates
-- Custom exercises with duplicate-name protection
-- Localized UI in English, Polish, and Italian
-- Premium paywall with monthly and lifetime products
-- In-app account deletion backed by a Supabase Edge Function
+Gymple has been tested on iPhone through Apple TestFlight and submitted for App Store review.
 
-## Getting Started
+This repository contains the mobile client, Supabase schema/reference files, the account deletion Edge Function and static legal/support pages.
 
-Install dependencies:
+## Local Development
+
+Required public environment variables are documented in [`.env.example`](.env.example).
 
 ```bash
 npm install
-```
-
-Create a local environment file:
-
-```bash
 cp .env.example .env
-```
-
-Fill in:
-
-```bash
-EXPO_PUBLIC_SUPABASE_URL=
-EXPO_PUBLIC_SUPABASE_ANON_KEY=
-EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=
-EXPO_PUBLIC_PRIVACY_URL=
-EXPO_PUBLIC_TERMS_URL=
-```
-
-Run locally:
-
-```bash
 npm run start
 ```
 
-Run checks:
+Run type checks:
 
 ```bash
 npm run typecheck
-npx expo-doctor
-npm audit --omit=dev
-npx expo export --platform ios --output-dir /tmp/gymple-ios-export
 ```
 
-## Supabase
+Purchases do not run in Expo Go. Use a development build or TestFlight to test Apple In-App Purchases.
 
-The app expects the public schema described in [supabase/schema.sql](supabase/schema.sql). The account deletion backend lives in [supabase/functions/delete-account/index.ts](supabase/functions/delete-account/index.ts).
+## Configuration Notes
 
-The Edge Function requires these Supabase function secrets:
+The app expects the Supabase schema described in [supabase/schema.sql](supabase/schema.sql).
 
-```bash
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-```
+The account deletion backend is implemented in [supabase/functions/delete-account](supabase/functions/delete-account).
 
-Keep the service-role key only in Supabase Edge Function secrets. Never put it in `.env`, EAS public env vars, or client code.
+RevenueCat/App Store identifiers used by the app:
 
-## Premium Setup
-
-The app currently expects these RevenueCat/App Store identifiers:
-
-- RevenueCat entitlement: `premium`
-- RevenueCat offering: `default`
+- Entitlement: `premium`
+- Offering: `default`
 - Monthly product: `com.gymple.premium.monthly`
 - Lifetime product: `com.gymple.premium.life`
 
-Prices are loaded at runtime from RevenueCat/App Store. They will not appear in Expo Go; test purchases in a development build or TestFlight.
+Additional release/setup notes are available in the [docs](docs) directory.
 
-## Release Docs
+## Security
 
-- [Release checklist](docs/RELEASE_CHECKLIST.md)
-- [App Store review notes](docs/APP_STORE_REVIEW_NOTES.md)
-- [Manual setup checklist](docs/MANUAL_SETUP.md)
-
-## Legal Pages
-
-The `docs` directory includes static GitHub Pages files:
-
-- `privacy.html`
-- `terms.html`
-- `support.html`
-- `index.html`
-
-The legal/support pages currently use `marcinzielinskii@icloud.com` as the support email. Then configure GitHub Pages to deploy from the `main` branch and `/docs` folder.
-
-## Security Notes
-
-- `.env` is ignored by git.
-- `.env.example` contains placeholders only.
-- Supabase anon/publishable keys are client-side public keys; service-role keys must stay server-side.
-- Before publishing, choose and add a license file if this repository should be open source under a specific license.
+- `.env` is ignored by git
+- `.env.example` contains placeholders only
+- Supabase anon/publishable keys are public client-side keys
+- Supabase service-role keys must stay server-side only
