@@ -84,15 +84,34 @@ function pickProductForPlan(products: PurchasesStoreProduct[], plan: Plan): Purc
 function getProductPriceString(product: PurchasesStoreProduct | null): string {
   if (!product) return "—";
   const p = product as any;
-  return String(p.priceString ?? p.price ?? "—");
+  const priceString = String(p.priceString ?? "").trim();
+  if (priceString) return priceString;
+
+  const currencyCode = String(p.currencyCode ?? "").trim();
+  const price = Number(p.price);
+  if (currencyCode && Number.isFinite(price)) {
+    try {
+      return new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: currencyCode,
+      }).format(price);
+    } catch {
+    }
+  }
+
+  return "—";
 }
 
 function getPackagePriceString(pack: PurchasesPackage | null, fallbackProduct: PurchasesStoreProduct | null): string {
+  if (pack) {
+    const packagePrice = getProductPriceString(pack.product);
+    if (packagePrice !== "—") return packagePrice;
+  }
+
   const fallbackPrice = getProductPriceString(fallbackProduct);
   if (fallbackPrice !== "—") return fallbackPrice;
-  if (!pack) return "—";
-  const product = pack.product as any;
-  return String(product?.priceString ?? product?.price ?? "—");
+
+  return "—";
 }
 
 export const PaywallOverlay: React.FC<Props> = ({ visible, source = "upgrade", onClose, onUnlock }) => {
