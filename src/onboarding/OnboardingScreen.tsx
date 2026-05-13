@@ -38,9 +38,42 @@ type Props = {
   onDone: () => void;
 };
 
+function getSessionAuthProvider(session: any) {
+  const metadataProvider = String(session?.user?.app_metadata?.provider ?? "").toLowerCase();
+  if (metadataProvider) return metadataProvider;
+
+  const identities = session?.user?.identities;
+  if (Array.isArray(identities)) {
+    const provider = identities
+      .map((identity) => String(identity?.provider ?? "").toLowerCase())
+      .find(Boolean);
+    if (provider) return provider;
+  }
+
+  return "";
+}
+
+function getSessionDisplayName(session: any) {
+  const metadata = session?.user?.user_metadata ?? {};
+  const candidates = [
+    metadata.display_name,
+    metadata.full_name,
+    metadata.name,
+    metadata.user_name,
+  ];
+
+  for (const candidate of candidates) {
+    const name = String(candidate ?? "").trim();
+    if (name) return name;
+  }
+
+  return "";
+}
+
 export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
   const { session } = useAuth() as any;
   const userId: string | null = session?.user?.id ?? null;
+  const isAppleSignIn = getSessionAuthProvider(session) === "apple";
 
   const i = useI18n();
   const t = useCallback((key: string) => i?.t(key) ?? key, [i]);
@@ -118,6 +151,12 @@ export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
         const profileName = String(profile?.display_name ?? "").trim();
         if (profileName && alive) {
           setData((prev) => prev.name.trim() ? prev : { ...prev, name: profileName });
+          return;
+        }
+
+        const sessionName = getSessionDisplayName(session);
+        if (sessionName && alive) {
+          setData((prev) => prev.name.trim() ? prev : { ...prev, name: sessionName });
         }
       } catch {
       }
@@ -127,7 +166,7 @@ export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
     return () => {
       alive = false;
     };
-  }, [userId]);
+  }, [userId, session]);
 
   const ctaLabel = useMemo(() => {
     if (currentStep === 1) return t("onboarding.cta_start");
@@ -265,6 +304,7 @@ export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
                   data={data}
                   setData={setData}
                   t={t}
+                  hideName={isAppleSignIn}
                   skipTouched={skipGoalTouched}
                   setSkipTouched={setSkipGoalTouched}
                 />
@@ -351,9 +391,10 @@ const StepPersonal: React.FC<{
   data: OnboardingData;
   setData: (d: OnboardingData) => void;
   t: (k: string) => string;
+  hideName?: boolean;
   skipTouched: boolean;
   setSkipTouched: (v: boolean) => void;
-}> = ({ data, setData, t, skipTouched, setSkipTouched }) => {
+}> = ({ data, setData, t, hideName = false, skipTouched, setSkipTouched }) => {
   const goals: {
     id: MainGoal;
     label: string;
@@ -387,17 +428,19 @@ const StepPersonal: React.FC<{
         <Text style={s.stepSubtitle}>{t("onboarding.step2_subtitle")}</Text>
       </View>
 
-      <View style={{ marginBottom: spacing(2) }}>
-        <Text style={s.label}>{t("onboarding.name_label")}</Text>
-        <TextInput
-          value={data.name}
-          onChangeText={(name) => setData({ ...data, name })}
-          placeholder={t("onboarding.name_placeholder")}
-          placeholderTextColor={colors.subtext}
-          style={s.input}
-          autoCapitalize="words"
-        />
-      </View>
+      {!hideName ? (
+        <View style={{ marginBottom: spacing(2) }}>
+          <Text style={s.label}>{t("onboarding.name_label")}</Text>
+          <TextInput
+            value={data.name}
+            onChangeText={(name) => setData({ ...data, name })}
+            placeholder={t("onboarding.name_placeholder")}
+            placeholderTextColor={colors.subtext}
+            style={s.input}
+            autoCapitalize="words"
+          />
+        </View>
+      ) : null}
 
       <View style={{ marginBottom: spacing(2) }}>
         <Text style={s.label}>{t("onboarding.units_label")}</Text>
@@ -644,10 +687,12 @@ const StepSummary: React.FC<{
       </View>
 
       <View style={{ marginTop: spacing(2), gap: 10 }}>
-        <SummaryCard
-          label={t("onboarding.summary_name")}
-          value={data.name || "-"}
-        />
+        {data.name.trim() ? (
+          <SummaryCard
+            label={t("onboarding.summary_name")}
+            value={data.name.trim()}
+          />
+        ) : null}
         <SummaryCard
           label={t("onboarding.summary_units")}
           value={data.weight_unit.toLowerCase()}

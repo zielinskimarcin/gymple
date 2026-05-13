@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import * as AppleAuthentication from "expo-apple-authentication";
 import { colors, spacing } from "../theme";
 import { useAuth } from "./AuthProvider";
 import AppLogo from "../components/AppLogo";
@@ -142,15 +141,17 @@ export const SignInScreen = ({ navigation }: any) => {
         </View>
 
         {Platform.OS === "ios" ? (
-          <View pointerEvents={busyApple ? "none" : "auto"} style={busyApple && { opacity: 0.7 }}>
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-              cornerRadius={14}
-              style={s.appleAuthButton}
-              onPress={onApple}
-            />
-          </View>
+          <TouchableOpacity
+            style={[s.appleBtn, busyApple && { opacity: 0.7 }]}
+            onPress={onApple}
+            disabled={busyApple}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="logo-apple" size={18} color="#000" />
+            <Text style={s.appleTxt}>
+              {busyApple ? t("auth.oauth_busy") : t("auth.apple_cta")}
+            </Text>
+          </TouchableOpacity>
         ) : null}
 
         <TouchableOpacity
@@ -291,15 +292,17 @@ export const SignUpScreen = ({ navigation }: any) => {
         </View>
 
         {Platform.OS === "ios" ? (
-          <View pointerEvents={busyApple ? "none" : "auto"} style={busyApple && { opacity: 0.7 }}>
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_UP}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-              cornerRadius={14}
-              style={s.appleAuthButton}
-              onPress={onApple}
-            />
-          </View>
+          <TouchableOpacity
+            style={[s.appleBtn, busyApple && { opacity: 0.7 }]}
+            onPress={onApple}
+            disabled={busyApple}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="logo-apple" size={18} color="#000" />
+            <Text style={s.appleTxt}>
+              {busyApple ? t("auth.oauth_busy") : t("auth.apple_cta")}
+            </Text>
+          </TouchableOpacity>
         ) : null}
 
         <TouchableOpacity
@@ -373,11 +376,17 @@ const s = StyleSheet.create({
   divider: { flex: 1, height: 1, backgroundColor: colors.border },
   dividerTxt: { color: colors.subtext, fontWeight: "600" },
 
-  appleAuthButton: {
-    height: 54,
-    width: "100%",
+  appleBtn: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    paddingVertical: spacing(1.9),
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
     marginBottom: 10,
   },
+  appleTxt: { color: "#000", fontWeight: "700" },
 
   googleBtn: {
     backgroundColor: colors.card,
