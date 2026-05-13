@@ -35,8 +35,8 @@ const PRODUCT_ID_MONTHLY = "com.gymple.premium.monthly";
 const PRODUCT_ID_LIFETIME = "com.gymple.premium.life";
 const ENTITLEMENT_ID = "premium";
 const OFFERING_ID = "default";
-const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? "";
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? "";
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://zielinskimarcin.github.io/gymple/privacy.html";
+const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? "https://zielinskimarcin.github.io/gymple/terms.html";
 
 function isExpoGo() {
   return Constants.appOwnership === "expo";

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert,
-  LayoutAnimation, Platform, UIManager, Linking,
+  LayoutAnimation, Platform, UIManager, Linking, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -20,8 +20,8 @@ if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? "";
-const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? "";
+const PRIVACY_URL = process.env.EXPO_PUBLIC_PRIVACY_URL ?? "https://zielinskimarcin.github.io/gymple/privacy.html";
+const TERMS_URL = process.env.EXPO_PUBLIC_TERMS_URL ?? "https://zielinskimarcin.github.io/gymple/terms.html";
 
 export const SettingsScreen = () => {
   const nav = useNavigation<any>();
@@ -266,7 +266,11 @@ async function deleteAccountNow() {
         </TouchableOpacity>
       </View>
 
-      <View style={{ padding: spacing(2) }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: spacing(2), paddingBottom: spacing(4) }}
+        showsVerticalScrollIndicator={false}
+      >
         <Section title={t("settings.general")}>
           <TouchableOpacity
             activeOpacity={0.8}
@@ -338,7 +342,7 @@ async function deleteAccountNow() {
         </Section>
 
         {loading ? <Text style={{ color: colors.subtext, marginTop: 8 }}>{t("common.loading")}</Text> : null}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
