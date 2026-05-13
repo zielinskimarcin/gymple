@@ -20,6 +20,7 @@ import AppLogo from "../components/AppLogo";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { useI18n } from "../i18n";
+import { getPendingProfile } from "../storage/pendingProfile";
 
 export type WeightUnit = "KG" | "LBS";
 export type MainGoal = "mass" | "strength" | "endurance" | null;
@@ -84,7 +85,7 @@ export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
       case 1:
         return true;
       case 2:
-        return data.name.trim().length > 0;
+        return true;
       case 3:
         return true;
       case 4:
@@ -93,6 +94,40 @@ export const OnboardingScreen: React.FC<Props> = ({ onDone }) => {
         return false;
     }
   }, [currentStep, data]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function seedName() {
+      if (!userId) return;
+
+      try {
+        const pending = await getPendingProfile();
+        const pendingName = pending?.display_name?.trim();
+        if (pendingName && alive) {
+          setData((prev) => prev.name.trim() ? prev : { ...prev, name: pendingName });
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("display_name")
+          .eq("id", userId)
+          .maybeSingle();
+
+        const profileName = String(profile?.display_name ?? "").trim();
+        if (profileName && alive) {
+          setData((prev) => prev.name.trim() ? prev : { ...prev, name: profileName });
+        }
+      } catch {
+      }
+    }
+
+    seedName();
+    return () => {
+      alive = false;
+    };
+  }, [userId]);
 
   const ctaLabel = useMemo(() => {
     if (currentStep === 1) return t("onboarding.cta_start");

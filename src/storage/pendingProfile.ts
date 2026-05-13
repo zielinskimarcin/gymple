@@ -86,6 +86,7 @@ export async function setPendingProfile(partial: Partial<PendingProfile>) {
   const cur: PendingProfile = prev ? JSON.parse(prev) : {};
   const next = { ...cur, ...partial };
   await setRaw(JSON.stringify(next));
+  await setSeeded(false);
 }
 
 export async function getPendingProfile(): Promise<PendingProfile | null> {

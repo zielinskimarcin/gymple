@@ -156,7 +156,7 @@
     "step1_line2": "Plan, track, and reach your fitness goals",
     "step2_title": "PERSONAL DETAILS",
     "step2_subtitle": "A few details about you",
-    "name_label": "Your name",
+    "name_label": "Your name (optional)",
     "name_placeholder": "Enter your name",
     "units_label": "Weight units",
     "main_goal_label": "Your main goal",

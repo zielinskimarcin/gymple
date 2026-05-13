@@ -7,7 +7,7 @@ import * as AppleAuthentication from "expo-apple-authentication";
 
 import { clearSupabaseAuthStorage, supabase } from "../lib/supabase";
 import { revenueCatLogIn, revenueCatLogOut } from "../premium/revenuecat";
-import { applyPendingProfileOnce } from "../storage/pendingProfile";
+import { applyPendingProfileOnce, setPendingProfile } from "../storage/pendingProfile";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -45,6 +45,18 @@ function isInvalidRefreshTokenError(error: unknown) {
     message.includes("Refresh Token Not Found") ||
     code.includes("refresh_token")
   );
+}
+
+function getAppleDisplayName(fullName: AppleAuthentication.AppleAuthenticationFullName | null) {
+  if (!fullName) return "";
+  return [
+    fullName.givenName,
+    fullName.middleName,
+    fullName.familyName,
+  ]
+    .filter((part) => typeof part === "string" && part.trim().length > 0)
+    .map((part) => part!.trim())
+    .join(" ");
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -170,6 +182,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const token = credential.identityToken;
       if (!token) return { error: "No identity token returned from Apple." };
+
+      const appleName = getAppleDisplayName(credential.fullName);
+      if (appleName) {
+        await setPendingProfile({ display_name: appleName });
+      }
 
       const { error } = await supabase.auth.signInWithIdToken({
         provider: "apple",
