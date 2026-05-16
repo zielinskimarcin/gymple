@@ -2,7 +2,9 @@
 
 Gymple is a mobile workout tracking app built with React Native.
 
-The app helps users log workouts, manage custom exercises, reuse training templates and review workout history. It has been tested through Apple TestFlight and submitted for App Store review.
+The app helps users log workouts, manage custom exercises, reuse training templates and review workout history. Gymple is live on the App Store after TestFlight validation.
+
+[Download Gymple on the App Store](https://apps.apple.com/us/app/gymple/id6756895779)
 
 ## Previews
 
@@ -16,7 +18,7 @@ The app helps users log workouts, manage custom exercises, reuse training templa
 
 ## Overview
 
-Gymple was built as an end-to-end mobile product, covering the full flow from authentication and workout data storage to subscriptions, privacy pages and App Store submission.
+Gymple was built as an end-to-end mobile product, covering the full flow from authentication and workout data storage to subscriptions, privacy pages and App Store release.
 
 The goal was to keep workout logging fast and focused while still supporting the features expected from a real training app: account sync, editable history, custom exercises, reusable templates and premium limits.
 
@@ -39,7 +41,7 @@ The goal was to keep workout logging fast and focused while still supporting the
 - Supabase Auth and PostgreSQL with Row Level Security for user-owned data
 - Secure account deletion using a server-side Supabase Edge Function
 - Apple In-App Purchase integration through RevenueCat entitlements
-- TestFlight validation before App Store submission
+- TestFlight validation before App Store release
 - App Store-ready privacy, terms and support documentation
 - TypeScript codebase with focused release checks
 
@@ -66,7 +68,9 @@ The goal was to keep workout logging fast and focused while still supporting the
 
 ## Status
 
-Gymple has been tested on iPhone through Apple TestFlight and submitted for App Store review.
+Gymple is live on the App Store:
+
+https://apps.apple.com/us/app/gymple/id6756895779
 
 This repository contains the mobile client, Supabase schema/reference files, the account deletion Edge Function and static legal/support pages.
 
@@ -102,4 +106,3 @@ RevenueCat/App Store identifiers used by the app:
 - Lifetime product: `com.gymple.premium.life`
 
 Additional release/setup notes are available in the [docs](docs) directory.
-
