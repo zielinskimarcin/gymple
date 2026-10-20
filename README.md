@@ -1,82 +1,79 @@
-# Gymple - iOS Mobile Application
+# Gymple
 
-Gymple is a mobile workout tracking app built with React Native.
+An iPhone workout tracker for logging sets, reusing routines and keeping a training history.
 
-The app helps users log workouts, manage custom exercises, reuse training templates and review workout history. Gymple is live on the App Store after TestFlight validation.
+[Available on the App Store](https://apps.apple.com/us/app/gymple/id6756895779).
 
-[Download Gymple on the App Store](https://apps.apple.com/us/app/gymple/id6756895779)
+<table>
+  <tr>
+    <td><a href="docs/readme/01-train.png"><img src="docs/readme/01-train.png" alt="Gymple home screen with the last workout, weekly progress and routine templates" width="140"></a></td>
+    <td><a href="docs/readme/02-workout-details.png"><img src="docs/readme/02-workout-details.png" alt="A saved workout with exercises, weights and repetitions" width="140"></a></td>
+  </tr>
+</table>
 
-## Previews
+## What I wanted to build
 
-| Train | Workout Details | History |
-| --- | --- | --- |
-| <img src="docs/readme/01-train.png" width="220" alt="Gymple train screen" /> | <img src="docs/readme/02-workout-details.png" width="220" alt="Gymple workout details screen" /> | <img src="docs/readme/03-history.png" width="220" alt="Gymple history screen" /> |
+I built Gymple around a straightforward workout flow: choose a routine, record the exercises and sets, then save the session so it is easy to find later. The interface keeps the training log close at hand, with custom exercises and templates for routines that repeat.
 
-| Exercises | Templates | Premium |
-| --- | --- | --- |
-| <img src="docs/readme/04-exercises.png" width="220" alt="Gymple exercises screen" /> | <img src="docs/readme/05-templates.png" width="220" alt="Gymple templates screen" /> | <img src="docs/readme/06-premium.png" width="220" alt="Gymple premium screen" /> |
+I also wanted to take the app through the less visible parts of shipping a mobile product: signing in, storing data under the right account, restoring purchases, deleting an account and preparing an App Store release. Gymple went through TestFlight before its App Store release.
 
-## Overview
+## Using it
 
-Gymple was built as an end-to-end mobile product, covering the full flow from authentication and workout data storage to subscriptions, privacy pages and App Store release.
+Start a workout from scratch or choose a template. Add exercises, record sets with weights and reps, and finish the session. Saved workouts appear in the history, where their names and contents can be reviewed and edited.
 
-The goal was to keep workout logging fast and focused while still supporting the features expected from a real training app: account sync, editable history, custom exercises, reusable templates and premium limits.
+<table>
+  <tr>
+    <td><a href="docs/readme/03-history.png"><img src="docs/readme/03-history.png" alt="Workout history listing completed sessions" width="140"></a></td>
+    <td><a href="docs/readme/04-exercises.png"><img src="docs/readme/04-exercises.png" alt="The exercise library grouped by muscle group, including a custom exercise" width="140"></a></td>
+  </tr>
+</table>
 
-## Core Functionality
+The exercise library includes built-in movements and supports custom ones. Templates save a selection of exercises for the next session. The app supports kilograms and pounds, and includes English, Polish and Italian translations.
 
-- Workout logging with exercises, sets, reps and weight
-- Workout history with saved training sessions
-- Custom exercise library with duplicate-name protection
-- Reusable workout templates
-- Email/password authentication, Google sign-in and Sign in with Apple
-- Account sync through Supabase
-- Premium unlocks through Apple In-App Purchases and RevenueCat
-- Account deletion flow backed by a Supabase Edge Function
-- Localized UI in English, Polish and Italian
-- Public Privacy Policy, Terms of Use and Support pages
+## How the app is put together
 
-## Product & Engineering Highlights
+React Native and Expo handle the mobile interface. Supabase Auth handles email/password, Google and Apple sign-in; PostgreSQL stores each user's workouts, custom exercises and templates. RevenueCat connects the app's Premium entitlement to Apple In-App Purchases.
 
-- Built and shipped as a production-oriented iOS app, not just a prototype
-- Supabase Auth and PostgreSQL with Row Level Security for user-owned data
-- Secure account deletion using a server-side Supabase Edge Function
-- Apple In-App Purchase integration through RevenueCat entitlements
-- TestFlight validation before App Store release
-- App Store-ready privacy, terms and support documentation
-- TypeScript codebase with focused release checks
+```text
+iPhone app
+    |-- Supabase Auth: sign-in and session
+    |-- PostgreSQL: workouts, exercises and templates
+    |-- RevenueCat / App Store: purchases and Premium status
+    `-- Edge Function: authenticated account deletion
+```
 
-## Technical Architecture
+Workout records keep the session's name, timing and status in database columns, with the exercise-and-set details in a JSON payload. This lets the history load session summaries while keeping the full log together.
 
-- **Mobile client:** React Native, Expo and TypeScript
-- **Authentication:** Supabase Auth with email/password, Google and Apple sign-in
-- **Database:** Supabase PostgreSQL with user-scoped workout, template and exercise data
-- **Serverless backend:** Supabase Edge Function for account deletion
-- **Purchases:** RevenueCat with Apple In-App Purchases
-- **Legal pages:** Static GitHub Pages files served from the `docs` directory
+## A few implementation details
 
-## Tech Stack
+**Account boundaries live in the database too.** Data access uses the signed-in user's ID, and the schema defines Row Level Security policies for user-owned tables. A workout, template or custom exercise belongs to its creator.
 
-- React Native
-- Expo
-- TypeScript
-- Supabase Auth
-- Supabase PostgreSQL
-- Supabase Edge Functions
-- RevenueCat
-- Apple In-App Purchases
-- iOS, TestFlight and App Store Connect
+**Custom exercises need predictable names.** Name checks trim whitespace and compare case-insensitively before saving. The release-hardening migration also defines per-user unique indexes for exercise and template names, so the database can reject duplicates as well as the interface.
 
-## Status
+**A purchase changes the current flow.** The Premium provider listens for RevenueCat customer updates. If a user reaches the free workout limit, saving can wait for the paywall result and continue when the entitlement becomes active. The app also includes purchase restoration.
 
-Gymple is live on the App Store:
+**Deleting an account needs server-side work.** The account-deletion Edge Function validates the caller's bearer token, removes that user's related records and deletes the authentication account. The privileged database key stays in the function's environment.
 
-https://apps.apple.com/us/app/gymple/id6756895779
+<table>
+  <tr>
+    <td><a href="docs/readme/05-templates.png"><img src="docs/readme/05-templates.png" alt="Creating a reusable workout template with a name, icon and selected exercises" width="140"></a></td>
+    <td><a href="docs/readme/06-premium.png"><img src="docs/readme/06-premium.png" alt="The Premium screen offering monthly and lifetime access after the free workout limit" width="140"></a></td>
+  </tr>
+</table>
 
-This repository contains the mobile client, Supabase schema/reference files, the account deletion Edge Function and static legal/support pages.
+*Screenshots show the app's training, history, exercise, template and purchase interfaces. Offers shown in screenshots may differ from the current App Store offer.*
 
-## Local Development
+## Built with
 
-Required public environment variables are documented in [`.env.example`](.env.example).
+- **React Native, Expo and TypeScript** for the mobile app and navigation.
+- **Supabase Auth and PostgreSQL** for accounts and user-owned training data.
+- **Supabase Edge Functions** for the account-deletion backend.
+- **RevenueCat and Apple In-App Purchases** for Premium purchases and entitlement updates.
+- **GitHub Pages** for the privacy, terms and support pages in `docs/`.
+
+## Running it locally
+
+This repository contains the mobile client, database schema/reference files, the account-deletion Edge Function and static support pages. To run your own instance, configure your own services using [`.env.example`](.env.example).
 
 ```bash
 npm install
@@ -84,7 +81,7 @@ cp .env.example .env
 npm run start
 ```
 
-Run type checks:
+Run the TypeScript check with:
 
 ```bash
 npm run typecheck
@@ -92,17 +89,6 @@ npm run typecheck
 
 Purchases do not run in Expo Go. Use a development build or TestFlight to test Apple In-App Purchases.
 
-## Configuration Notes
+The database structure is documented in [supabase/schema.sql](supabase/schema.sql), with additional setup notes in [supabase/README.md](supabase/README.md). The account-deletion backend is in [supabase/functions/delete-account](supabase/functions/delete-account).
 
-The app expects the Supabase schema described in [supabase/schema.sql](supabase/schema.sql).
-
-The account deletion backend is implemented in [supabase/functions/delete-account](supabase/functions/delete-account).
-
-RevenueCat/App Store identifiers used by the app:
-
-- Entitlement: `premium`
-- Offering: `default`
-- Monthly product: `com.gymple.premium.monthly`
-- Lifetime product: `com.gymple.premium.life`
-
-Additional release/setup notes are available in the [docs](docs) directory.
+The purchase integration uses entitlement `premium`, offering `default`, and products `com.gymple.premium.monthly` and `com.gymple.premium.life`. Further release/setup notes are in [docs](docs).
